@@ -1,0 +1,38 @@
+{
+  "name": "zadu-js",
+  "version": "1.0.0",
+  "description": "A JavaScript library for evaluating dimensionality reduction quality using Trustworthiness and Continuity metrics",
+  "type": "module",
+  "main": "src/zadu.js",
+  "exports": {
+    ".": "./src/zadu.js",
+    "./trustworthiness": "./src/metrics/local/trustworthiness.js",
+    "./continuity": "./src/metrics/local/continuity.js"
+  },
+  "scripts": {
+    "test": "node test/test.js",
+    "demo": "node examples/demo.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jonathantarun/zadu-js.git"
+  },
+  "keywords": [
+    "dimensionality-reduction",
+    "trustworthiness",
+    "continuity",
+    "evaluation",
+    "metrics",
+    "umap"
+  ],
+  "author": "Jonathan Tarun Rajasekaran",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/jonathantarun/zadu-js/issues"
+  },
+  "homepage": "https://github.com/jonathantarun/zadu-js#readme",
+  "dependencies": {
+    "@saehrimnir/druidjs": "^0.7.3",
+    "umap-js": "^1.4.0"
+  }
+}

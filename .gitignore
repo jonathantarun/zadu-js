@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+
+# Build output (if you add a build step later)
+dist/
+build/
+
+# Test coverage (if you add coverage later)
+coverage/
+.nyc_output/
+
+# Examples (since you mentioned not pushing them)
+examples/
