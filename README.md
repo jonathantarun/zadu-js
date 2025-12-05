@@ -6,9 +6,31 @@ A re-implementation of the ZADU library from python in JavaScript for computing 
 A JavaScript library for evaluating dimensionality reduction quality using **Trustworthiness** and **Continuity** metrics.
 
 ## Installation
+
+### Option 1: Install from GitHub
+
 ```bash
-npm install zadu-js
+npm install jonathantarun/zadu-js
 ```
+
+### Option 2: Clone the Repository
+
+```bash
+git clone https://github.com/jonathantarun/zadu-js.git
+cd zadu-js
+npm install
+```
+
+### Option 3: Download and Use Locally
+
+1. Download the repository
+2. Copy the `src/` folder to your project
+3. Import directly:
+
+```javascript
+import ZADU from './src/zadu.js';
+```
+### NOTE: This library is not yet published to npm
 
 ## Quick Start
 ```javascript
