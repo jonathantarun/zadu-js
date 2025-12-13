@@ -9,6 +9,11 @@
     "./trustworthiness": "./src/metrics/local/trustworthiness.js",
     "./continuity": "./src/metrics/local/continuity.js"
   },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node test/test.js",
     "demo": "node examples/demo.js"

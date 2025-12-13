@@ -1,19 +1,22 @@
-# zadu-js
-A re-implementation of the ZADU library from python in JavaScript for computing distortion measures to evaluate the reliability of dimensionality reduction visualizations
-
 # ZADU.js
 
-A JavaScript library for evaluating dimensionality reduction quality using **Trustworthiness** and **Continuity** metrics.
+A JavaScript library for evaluating dimensionality reduction quality using **Trustworthiness** and **Continuity** metrics. This is a JavaScript port of the Python [ZADU](https://github.com/hj-n/zadu) library for dimensionality reduction evaluation.
 
 ## Installation
 
-### Option 1: Install from GitHub
+### Option 1: Install npm package
+
+```bash
+npm install zadu-js
+```
+
+### Option 2: Install from GitHub
 
 ```bash
 npm install jonathantarun/zadu-js
 ```
 
-### Option 2: Clone the Repository
+### Option 3: Clone the Repository
 
 ```bash
 git clone https://github.com/jonathantarun/zadu-js.git
@@ -21,7 +24,7 @@ cd zadu-js
 npm install
 ```
 
-### Option 3: Download and Use Locally
+### Option 4: Download and Use Locally
 
 1. Download the repository
 2. Copy the `src/` folder to your project
@@ -30,7 +33,7 @@ npm install
 ```javascript
 import ZADU from './src/zadu.js';
 ```
-### NOTE: This library is not yet published to npm
+
 
 ## Quick Start
 ```javascript
@@ -200,6 +203,17 @@ MIT
 
 Jonathan Tarun Rajasekaran
 
+## Citation
+
+If you use ZADU.js in your research, please cite the original ZADU paper:
+```bibtex
+@article{hj2023zadu,
+  title={ZADU: A Python Library for Evaluating the Reliability of Dimensionality Reduction Embeddings},
+  author={Hyeon Jeon and others},
+  year={2023}
+}
+```
+
 ## NOTE
 
-This is a JavaScript port of the Python [ZADU library](https://github.com/hj-n/zadu) for dimensionality reduction evaluation.
+This is a JavaScript port of the [Python ZADU library](https://github.com/hj-n/zadu) for dimensionality reduction evaluation.
