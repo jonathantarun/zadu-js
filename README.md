@@ -1,41 +1,25 @@
+# zadu-js
+
+A re-implementation of the ZADU library from python in JavaScript for computing distortion measures to evaluate the reliability of dimensionality reduction visualizations
+
 # ZADU.js
 
-A JavaScript library for evaluating dimensionality reduction quality using **Trustworthiness** and **Continuity** metrics. This is a JavaScript port of the Python [ZADU](https://github.com/hj-n/zadu) library for dimensionality reduction evaluation.
+A JavaScript library for evaluating dimensionality reduction quality using **Trustworthiness** and **Continuity** metrics.
 
 ## Installation
 
-### Option 1: Install npm package
-
-```bash
+```
 npm install zadu-js
 ```
 
-### Option 2: Install from GitHub
-
-```bash
-npm install jonathantarun/zadu-js
-```
-
-### Option 3: Clone the Repository
-
-```bash
-git clone https://github.com/jonathantarun/zadu-js.git
-cd zadu-js
-npm install
-```
-
-### Option 4: Download and Use Locally
-
-1. Download the repository
-2. Copy the `src/` folder to your project
-3. Import directly:
+Or clone this repository and import directly:
 
 ```javascript
 import ZADU from './src/zadu.js';
 ```
 
-
 ## Quick Start
+
 ```javascript
 import ZADU from 'zadu-js';
 
@@ -55,6 +39,7 @@ console.log('Continuity:', result.continuity.score);
 ## Usage
 
 ### Calculate Both Metrics
+
 ```javascript
 import ZADU from 'zadu-js';
 
@@ -66,6 +51,7 @@ console.log(result.trustworthiness.localScores); // Per-point scores
 ```
 
 ### Calculate Individual Metrics
+
 ```javascript
 import ZADU from 'zadu-js';
 
@@ -79,6 +65,7 @@ console.log('Continuity:', cont.score);
 ```
 
 ### Import Specific Functions
+
 ```javascript
 import { trustworthiness, continuity } from 'zadu-js';
 
@@ -86,16 +73,20 @@ const trustScore = trustworthiness(highDimData, lowDimData, 20);
 const contScore = continuity(highDimData, lowDimData, 20);
 ```
 
+## API Reference
+
 ### `ZADU.trustworthiness(highDim, lowDim, k)`
 
 Measures whether points close in the low-dimensional projection were also close in the high-dimensional space.
 
 **Parameters:**
-- `highDim` (Array): High-dimensional data as array of arrays
-- `lowDim` (Array): Low-dimensional embedding as array of arrays
-- `k` (Number): Number of nearest neighbors to consider (default: 20)
+
+* `highDim` (Array): High-dimensional data as array of arrays
+* `lowDim` (Array): Low-dimensional embedding as array of arrays
+* `k` (Number): Number of nearest neighbors to consider (default: 20)
 
 **Returns:**
+
 ```javascript
 {
   score: 0.95,              // Overall trustworthiness score [0, 1]
@@ -111,26 +102,14 @@ Measures whether points close in the high-dimensional space remain close in the 
 
 **Parameters:** Same as `trustworthiness`
 
-- `highDim` (Array): High-dimensional data as array of arrays
-- `lowDim` (Array): Low-dimensional embedding as array of arrays
-- `k` (Number): Number of nearest neighbors to consider (default: 20)
-
 **Returns:** Same structure as `trustworthiness`
-
-```javascript
-{
-  score: 0.95,              // Overall trustworthiness score [0, 1]
-  localScores: [...],       // Per-point trustworthiness scores (has the same order as your input data)
-  k: 20,                    // Number of neighbors used (to check for false neighbors)
-  n: 1000                   // Number of data points
-}
-```
 
 ### `ZADU.trustworthinessAndContinuity(highDim, lowDim, k)`
 
 Calculates both metrics simultaneously.
 
 **Returns:**
+
 ```javascript
 {
   trustworthiness: { score, localScores, k, n },
@@ -143,47 +122,55 @@ Calculates both metrics simultaneously.
 Python ZADU-compatible interface for batch metric calculation.
 
 **Parameters:**
-- `spec` (Array): Array of metric specifications
+
+* `spec` (Array): Array of metric specifications
+
 ```javascript
-  [
-    { id: 'trustworthiness', params: { k: 20 } },
-    { id: 'continuity', params: { k: 15 } },
-    { id: 'tnc', params: { k: 20 } }
-  ]
+[
+  { id: 'trustworthiness', params: { k: 20 } },
+  { id: 'continuity', params: { k: 15 } },
+  { id: 'tnc', params: { k: 20 } }
+]
 ```
-- `highDim` (Array): High-dimensional data
-- `lowDim` (Array): Low-dimensional embedding
+
+* `highDim` (Array): High-dimensional data
+* `lowDim` (Array): Low-dimensional embedding
 
 **Returns:** Array of results matching the specification order
 
 ## Understanding the Metrics
 
 ### Trustworthiness (T)
-- Measures **false neighbors** in the embedding
-- High score = points close in 2D were also close in original space
-- Low score = embedding brings together points that were far apart
+
+* Measures **false neighbors** in the embedding
+* High score = points close in 2D were also close in original space
+* Low score = embedding brings together points that were far apart
 
 ### Continuity (C)
-- Measures **missing neighbors** in the embedding  
-- High score = points close in original space stayed close in 2D
-- Low score = embedding separates points that were close together
+
+* Measures **missing neighbors** in the embedding
+* High score = points close in original space stayed close in 2D
+* Low score = embedding separates points that were close together
 
 ### Interpretation
-- **Both high (>0.9)**: Excellent embedding quality
-- **T high, C low**: Embedding preserves local structure but tears apart some clusters
-- **T low, C high**: Embedding creates false clusters but preserves distances
-- **Both low (<0.8)**: Poor embedding quality
+
+* **Both high (>0.9)**: Excellent embedding quality
+* **T high, C low**: Embedding preserves local structure but tears apart some clusters
+* **T low, C high**: Embedding creates false clusters but preserves distances
+* **Both low (<0.8)**: Poor embedding quality
 
 ### Choosing k
-- **k = 10-20**: Good default for most datasets
-- **Smaller k**: More sensitive to very local structure
-- **Larger k**: Captures more global structure
-- Rule of thumb: k should be much smaller than n (number of points)
+
+* **k = 10-20**: Good default for most datasets
+* **Smaller k**: More sensitive to very local structure
+* **Larger k**: Captures more global structure
+* Rule of thumb: k should be much smaller than n (number of points)
 
 ## Browser Usage
+
 ```html
 <script type="module">
-  import ZADU from './node_modules/zadu-js/src/zadu.js';
+  import ZADU from './src/zadu.js';
   
   const result = ZADU.trustworthiness(highDim, lowDim, 20);
   console.log(result);
@@ -191,7 +178,8 @@ Python ZADU-compatible interface for batch metric calculation.
 ```
 
 ## Running Tests
-```bash
+
+```
 npm test
 ```
 
@@ -199,21 +187,6 @@ npm test
 
 MIT
 
-## Author
+## Acknowledgments
 
-Jonathan Tarun Rajasekaran
-
-## Citation
-
-If you use ZADU.js in your research, please cite the original ZADU paper:
-```bibtex
-@article{hj2023zadu,
-  title={ZADU: A Python Library for Evaluating the Reliability of Dimensionality Reduction Embeddings},
-  author={Hyeon Jeon and others},
-  year={2023}
-}
-```
-
-## NOTE
-
-This is a JavaScript port of the [Python ZADU library](https://github.com/hj-n/zadu) for dimensionality reduction evaluation.
+This is a JavaScript port of the Python [ZADU library](https://github.com/hj-n/zadu) for dimensionality reduction evaluation.
