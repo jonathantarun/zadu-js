@@ -7,10 +7,10 @@
  * https://github.com/hj-n/steadiness-cohesiveness
  */
 
+import { HDBSCAN } from 'hdbscan-ts';
 import { calculateDistanceMatrix } from '../../core/distance.js';
 import { getKNNIndices, computeSNNMatrix, normalizeSNNMatrix, computeSNNDistanceMatrix } from '../../core/snn.js';
 import { extractCluster } from '../../core/randomWalk.js';
-import { dbscan, separateClusters } from '../../core/clustering.js';
 
 /**
  * Normalize a distance matrix by its maximum value
@@ -42,10 +42,38 @@ function normalizeDistMatrix(distMatrix) {
 }
 
 /**
- * Compute average SNN similarity between two clusters
+ * Cluster points using HDBSCAN
+ * @param {number[][]} data - full dataset
+ * @param {number[]} indices - indices of points to cluster
+ * @returns {number[][]} - array of clusters, each containing point indices
+ */
+function clusterWithHdbscan(data, indices) {
+  if (indices.length < 3) {
+    return [indices]; // Too small to cluster
+  }
+
+  const points = indices.map(i => data[i]);
+  const hdbscan = new HDBSCAN({ minClusterSize: 2, minSamples: 2 });
+  hdbscan.fit(points);
+  const labels = hdbscan.labels_;
+
+  // Separate into clusters (noise points become individual clusters)
+  const clusters = new Map();
+  labels.forEach((label, i) => {
+    const key = label === -1 ? `noise_${i}` : label;
+    if (!clusters.has(key)) clusters.set(key, []);
+    clusters.get(key).push(indices[i]);
+  });
+
+  return [...clusters.values()];
+}
+
+/**
+ * Compute average SNN-based distance between two clusters
  * @param {number[]} clusterA - indices of points in cluster A
  * @param {number[]} clusterB - indices of points in cluster B
- * @param {number[][]} snnMatrix - normalized SNN similarity matrix
+ * @param {number[][]} rawSNNMatrix - normalized SNN similarity matrix for raw space
+ * @param {number[][]} embSNNMatrix - normalized SNN similarity matrix for emb space
  * @param {number} alpha - distance parameter
  * @returns {{ rawDist: number, embDist: number }}
  */
@@ -103,6 +131,8 @@ function computeDistortionBounds(rawSNNDistMatrix, embSNNDistMatrix) {
  * Run a single iteration of the SNC measurement
  * @param {string} mode - 'steadiness' or 'cohesiveness'
  * @param {Object} infos - precomputed info objects
+ * @param {number[][]} highDim - high-dimensional data
+ * @param {number[][]} lowDim - low-dimensional embedding
  * @param {number} walkNum - walk length for cluster extraction
  * @param {number} alpha - distance parameter
  * @param {number} maxVal - max distortion for normalization
@@ -111,21 +141,21 @@ function computeDistortionBounds(rawSNNDistMatrix, embSNNDistMatrix) {
  * @param {number[]} localWeights - accumulator for local weights
  * @returns {{ distortionSum: number, weightSum: number }}
  */
-function measureSingleIteration(mode, infos, walkNum, alpha, maxVal, minVal, localDistortions, localWeights) {
+function measureSingleIteration(mode, infos, highDim, lowDim, walkNum, alpha, maxVal, minVal, localDistortions, localWeights) {
   const n = infos.n;
 
-  // Select which space to extract from and which to cluster in
-  let extractKNN, extractSNN, clusterDistMatrix;
+  // Select which space to extract from
+  let extractKNN, extractSNN, clusterData;
   if (mode === 'steadiness') {
     // Extract from embedded space, cluster in raw space
     extractKNN = infos.embKNN;
     extractSNN = infos.embSNNNorm;
-    clusterDistMatrix = infos.rawSNNDistMatrix;
+    clusterData = highDim;
   } else {
     // Extract from raw space, cluster in embedded space
     extractKNN = infos.rawKNN;
     extractSNN = infos.rawSNNNorm;
-    clusterDistMatrix = infos.embSNNDistMatrix;
+    clusterData = lowDim;
   }
 
   // Random seed point
@@ -139,9 +169,8 @@ function measureSingleIteration(mode, infos, walkNum, alpha, maxVal, minVal, loc
     return { distortionSum: 0, weightSum: 0 };
   }
 
-  // Cluster the extracted points using DBSCAN on the opposite space
-  const labels = dbscan(clusterDistMatrix, clusterIndices);
-  const separatedClusters = separateClusters(clusterIndices, labels);
+  // Cluster the extracted points using HDBSCAN
+  const separatedClusters = clusterWithHdbscan(clusterData, clusterIndices);
 
   let distortionSum = 0;
   let weightSum = 0;
@@ -292,7 +321,7 @@ function steadinessCohesiveness(highDim, lowDim, options = {}) {
   for (let iter = 0; iter < iteration; iter++) {
     // Steadiness: extract from emb, measure distortion in raw
     const steadResult = measureSingleIteration(
-      'steadiness', infos, walkNum, alpha,
+      'steadiness', infos, highDim, lowDim, walkNum, alpha,
       maxCompress, minCompress,
       steadinessLocalDistortions, steadinessLocalWeights
     );
@@ -301,7 +330,7 @@ function steadinessCohesiveness(highDim, lowDim, options = {}) {
 
     // Cohesiveness: extract from raw, measure distortion in emb
     const cohevResult = measureSingleIteration(
-      'cohesiveness', infos, walkNum, alpha,
+      'cohesiveness', infos, highDim, lowDim, walkNum, alpha,
       maxStretch, minStretch,
       cohesivenessLocalDistortions, cohesivenessLocalWeights
     );
