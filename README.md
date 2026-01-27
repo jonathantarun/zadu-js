@@ -1,6 +1,10 @@
 # ZADU.js
 
-A JavaScript library for evaluating dimensionality reduction quality using **Trustworthiness** and **Continuity** metrics. This is a JavaScript port of the Python [ZADU](https://github.com/hj-n/zadu) library for dimensionality reduction evaluation.
+A JavaScript library for evaluating dimensionality reduction quality. This is a JavaScript port of the Python [ZADU](https://github.com/hj-n/zadu) library.
+
+**Metrics:**
+- **Trustworthiness & Continuity** - Point-level neighborhood preservation
+- **Steadiness & Cohesiveness** - Cluster-level structure preservation
 
 ## Installation
 
@@ -80,10 +84,11 @@ console.log('Continuity:', cont.score);
 
 ### Import Specific Functions
 ```javascript
-import { trustworthiness, continuity } from 'zadu-js';
+import { trustworthiness, continuity, steadinessCohesiveness } from 'zadu-js';
 
 const trustScore = trustworthiness(highDimData, lowDimData, 20);
 const contScore = continuity(highDimData, lowDimData, 20);
+const sncResult = steadinessCohesiveness(highDimData, lowDimData, { k: 15 });
 ```
 
 ### `ZADU.trustworthiness(highDim, lowDim, k)`
@@ -138,6 +143,37 @@ Calculates both metrics simultaneously.
 }
 ```
 
+### `ZADU.steadinessCohesiveness(highDim, lowDim, options)`
+
+Measures cluster structure preservation between original and projected spaces.
+
+- **Steadiness**: Detects "false groups" - clusters in the projection that don't exist in original space
+- **Cohesiveness**: Detects "missing groups" - clusters in original space torn apart by projection
+
+**Parameters:**
+- `highDim` (Array): High-dimensional data as array of arrays
+- `lowDim` (Array): Low-dimensional embedding as array of arrays
+- `options` (Object): Configuration options
+  - `k` (Number): Number of nearest neighbors (default: `Math.sqrt(n)`)
+  - `iteration` (Number): Number of sampling iterations (default: 150)
+  - `walkNumRatio` (Number): Random walk length ratio (default: 0.3)
+  - `alpha` (Number): Distance penalty parameter (default: 0.1)
+
+**Returns:**
+```javascript
+{
+  steadiness: { score, localScores, k, n, iteration },
+  cohesiveness: { score, localScores, k, n, iteration }
+}
+```
+
+**Example:**
+```javascript
+const result = ZADU.steadinessCohesiveness(highDimData, lowDimData, { k: 15 });
+console.log('Steadiness:', result.steadiness.score);
+console.log('Cohesiveness:', result.cohesiveness.score);
+```
+
 ### `ZADU.measure(spec, highDim, lowDim)`
 
 Python ZADU-compatible interface for batch metric calculation.
@@ -148,7 +184,10 @@ Python ZADU-compatible interface for batch metric calculation.
   [
     { id: 'trustworthiness', params: { k: 20 } },
     { id: 'continuity', params: { k: 15 } },
-    { id: 'tnc', params: { k: 20 } }
+    { id: 'tnc', params: { k: 20 } },
+    { id: 'snc', params: { k: 15, iteration: 100 } },
+    { id: 'steadiness', params: { k: 15 } },
+    { id: 'cohesiveness', params: { k: 15 } }
   ]
 ```
 - `highDim` (Array): High-dimensional data
@@ -164,15 +203,27 @@ Python ZADU-compatible interface for batch metric calculation.
 - Low score = embedding brings together points that were far apart
 
 ### Continuity (C)
-- Measures **missing neighbors** in the embedding  
+- Measures **missing neighbors** in the embedding
 - High score = points close in original space stayed close in 2D
 - Low score = embedding separates points that were close together
 
+### Steadiness (S)
+- Measures **false groups** in the embedding
+- High score = clusters in 2D also existed in original space
+- Low score = embedding creates artificial clusters
+
+### Cohesiveness (C)
+- Measures **missing groups** in the embedding
+- High score = clusters in original space remain intact in 2D
+- Low score = embedding splits real clusters apart
+
 ### Interpretation
-- **Both high (>0.9)**: Excellent embedding quality
-- **T high, C low**: Embedding preserves local structure but tears apart some clusters
-- **T low, C high**: Embedding creates false clusters but preserves distances
-- **Both low (<0.8)**: Poor embedding quality
+- **Both T&C high (>0.9)**: Excellent local neighborhood preservation
+- **Both S&C high (>0.9)**: Excellent cluster structure preservation
+- **T&C high, S&C low**: Good local, bad cluster structure
+- **T&C low, S&C high**: Good clusters, bad local detail
+
+For detailed guidance, see [docs/METRICS_GUIDE.md](docs/METRICS_GUIDE.md).
 
 ### Choosing k
 - **k = 10-20**: Good default for most datasets
