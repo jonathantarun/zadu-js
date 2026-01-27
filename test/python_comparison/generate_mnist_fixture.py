@@ -34,13 +34,13 @@ y_sample = y[indices]
 
 print(f"Sampled {len(X_sample)} points (20 per digit)")
 
+# Normalize BEFORE creating embedding (important for consistency)
+X_sample = X_sample / 255.0  # Scale to [0,1]
+
 # Create 2D embedding with UMAP
 print("Creating UMAP embedding...")
 umap = UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
 X_emb = umap.fit_transform(X_sample)
-
-# Normalize
-X_sample = X_sample / 255.0  # Scale to [0,1]
 
 n = len(X_sample)
 k = int(np.sqrt(n))
@@ -86,7 +86,10 @@ fixture = {
     }
 }
 
-with open("mnist_fixture.json", "w") as f:
+import os
+script_dir = os.path.dirname(os.path.abspath(__file__))
+output_path = os.path.join(script_dir, "mnist_fixture.json")
+with open(output_path, "w") as f:
     json.dump(fixture, f)
 
 print(f"\nMNIST fixture saved to mnist_fixture.json ({len(X_sample[0])}D -> 2D)")

@@ -73,7 +73,10 @@ fixture = {
     }
 }
 
-with open("test_fixture.json", "w") as f:
+import os
+script_dir = os.path.dirname(os.path.abspath(__file__))
+output_path = os.path.join(script_dir, "test_fixture.json")
+with open(output_path, "w") as f:
     json.dump(fixture, f, indent=2)
 
-print("\nTest fixture saved to test_fixture.json")
+print(f"\nTest fixture saved to {output_path}")
