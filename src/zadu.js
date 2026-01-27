@@ -5,7 +5,7 @@
 
 import trustworthiness from './metrics/local/trustworthiness.js';
 import continuity from './metrics/local/continuity.js';
-import steadinessCohesiveness from './metrics/local/steadiness_cohesiveness.js';
+import steadinessCohesiveness from './metrics/cluster/steadiness_cohesiveness.js';
 
 /**
  * ZADU Main Class
