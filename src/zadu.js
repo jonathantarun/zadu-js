@@ -5,6 +5,7 @@
 
 import trustworthiness from './metrics/local/trustworthiness.js';
 import continuity from './metrics/local/continuity.js';
+import steadinessCohesiveness from './metrics/local/steadiness_cohesiveness.js';
 
 /**
  * ZADU Main Class
@@ -35,15 +36,38 @@ class ZADU {
   }
 
   /**
+   * Calculate Steadiness metric
+   * Measures whether clusters in the projection form cohesive groups in original space
+   */
+  static steadiness(highDim, lowDim, options = {}) {
+    return steadinessCohesiveness(highDim, lowDim, options).steadiness;
+  }
+
+  /**
+   * Calculate Cohesiveness metric
+   * Measures whether clusters in original space remain intact in the projection
+   */
+  static cohesiveness(highDim, lowDim, options = {}) {
+    return steadinessCohesiveness(highDim, lowDim, options).cohesiveness;
+  }
+
+  /**
+   * Calculate both Steadiness and Cohesiveness
+   */
+  static steadinessCohesiveness(highDim, lowDim, options = {}) {
+    return steadinessCohesiveness(highDim, lowDim, options);
+  }
+
+  /**
    * Main interface (Python ZADU compatible)
    */
   static measure(spec, highDim, lowDim) {
     const results = [];
-    
+
     for (const metric of spec) {
       const { id, params = {} } = metric;
       const k = params.k || 20;
-      
+
       switch (id) {
         case 'tnc':
           results.push(this.trustworthinessAndContinuity(highDim, lowDim, k));
@@ -54,11 +78,20 @@ class ZADU {
         case 'continuity':
           results.push(this.continuity(highDim, lowDim, k));
           break;
+        case 'snc':
+          results.push(this.steadinessCohesiveness(highDim, lowDim, params));
+          break;
+        case 'steadiness':
+          results.push(this.steadiness(highDim, lowDim, params));
+          break;
+        case 'cohesiveness':
+          results.push(this.cohesiveness(highDim, lowDim, params));
+          break;
         default:
           throw new Error(`Unknown metric: ${id}`);
       }
     }
-    
+
     return results;
   }
 }
@@ -67,4 +100,4 @@ class ZADU {
 export default ZADU;
 
 // Named exports for convenience
-export { trustworthiness, continuity };
+export { trustworthiness, continuity, steadinessCohesiveness };

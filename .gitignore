@@ -35,4 +35,4 @@ coverage/
 .nyc_output/
 
 # Examples (since you mentioned not pushing them)
-examples/
+examples/.venv/
