@@ -1,60 +1,47 @@
 /**
  * src/core/randomWalk.js
- * Random walk cluster extraction for Steadiness & Cohesiveness metrics
+ * Cluster extraction for Steadiness & Cohesiveness metrics
+ * Matches the Python implementation in snc/helpers/snn_knn.py
  */
 
 /**
- * Extract a cluster via SNN-guided random walk
- * @param {number[][]} snnMatrix - SNN similarity matrix
+ * Extract a cluster via SNN-guided BFS traversal
+ * Uses acceptance probability based on SNN similarity
+ *
+ * @param {number[][]} knnIndices - k-NN indices for each point
+ * @param {number[][]} snnMatrix - normalized SNN similarity matrix
  * @param {number} startIdx - starting point index
- * @param {number} walkLength - number of steps
- * @returns {number[]} - indices of visited points (the cluster)
+ * @param {number} walkNum - maximum number of visits
+ * @returns {number[]} - indices of cluster members
  */
-function extractCluster(snnMatrix, startIdx, walkLength) {
-  const n = snnMatrix.length;
-  const visited = new Set([startIdx]);
-  let currentIdx = startIdx;
+function extractCluster(knnIndices, snnMatrix, startIdx, walkNum) {
+  const clusterMember = new Set([startIdx]);
+  const queue = [startIdx];
 
-  for (let step = 0; step < walkLength; step++) {
-    // Get SNN similarities to all other points from current point
-    const similarities = snnMatrix[currentIdx];
+  let visitNum = 0;
 
-    // Calculate transition probabilities (proportional to SNN similarity)
-    const weights = [];
-    let totalWeight = 0;
+  while (visitNum < walkNum && queue.length > 0) {
+    const i = queue.shift(); // Pop from front (BFS)
+    const knns = knnIndices[i];
 
-    for (let i = 0; i < n; i++) {
-      if (i !== currentIdx) {
-        // Add small epsilon to avoid division by zero and allow some exploration
-        const weight = similarities[i] + 0.001;
-        weights.push({ idx: i, weight });
-        totalWeight += weight;
+    for (const j of knns) {
+      // Acceptance probability: higher SNN similarity = more likely to accept
+      // probability of NOT accepting = 1 - snn_similarity
+      const probability = 1 - snnMatrix[i][j];
+      const dice = Math.random();
+
+      if (dice > probability) {
+        // Accept this neighbor
+        queue.push(j);
+        clusterMember.add(j);
+        visitNum++;
+
+        if (visitNum >= walkNum) break;
       }
     }
-
-    if (totalWeight === 0) {
-      // No valid transitions, stay at current position
-      continue;
-    }
-
-    // Sample next point based on probabilities
-    const rand = Math.random() * totalWeight;
-    let cumulative = 0;
-    let nextIdx = currentIdx;
-
-    for (const { idx, weight } of weights) {
-      cumulative += weight;
-      if (rand <= cumulative) {
-        nextIdx = idx;
-        break;
-      }
-    }
-
-    visited.add(nextIdx);
-    currentIdx = nextIdx;
   }
 
-  return Array.from(visited);
+  return Array.from(clusterMember);
 }
 
 export { extractCluster };

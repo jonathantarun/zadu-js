@@ -1,8 +1,8 @@
 """
-Generate test data and Python SNC results for JavaScript validation.
+Generate test data and Python ZADU results for JavaScript validation.
 
 Prerequisites:
-    pip install steadiness-cohesiveness numpy
+    pip install zadu numpy
 
 Usage:
     python generate_test_data.py
@@ -11,10 +11,10 @@ import numpy as np
 import json
 
 try:
-    from snc import SNC
+    from zadu.zadu import steadiness_cohesiveness
 except ImportError:
-    print("Error: steadiness-cohesiveness package not installed.")
-    print("Install with: pip install steadiness-cohesiveness")
+    print("Error: zadu package not installed.")
+    print("Install with: pip install zadu")
     exit(1)
 
 # Generate reproducible test data
@@ -34,20 +34,21 @@ low_dim = np.vstack([group1_low, group2_low])
 # Calculate k as sqrt(n) to match JS default
 k = int(np.sqrt(n))
 
-# Run Python SNC with specific params
-print(f"Running SNC with n={n}, k={k}, iteration=50...")
-snc = SNC(
-    raw=high_dim,
+# Run Python ZADU SNC with specific params
+print(f"Running SNC with n={n}, k={k}, iteration=200...")
+result = steadiness_cohesiveness.measure(
+    orig=high_dim,
     emb=low_dim,
-    iteration=50,  # fewer for faster tests
-    walk_num_ratio=0.3
+    k=k,
+    iteration=200,  # more iterations for stability
+    walk_num_ratio=0.3,
+    alpha=0.1
 )
-snc.fit()
 
-steadiness = snc.steadiness()
-cohesiveness = snc.cohesiveness()
+steadiness = result['steadiness']
+cohesiveness = result['cohesiveness']
 
-print(f"Python results:")
+print(f"Python ZADU results:")
 print(f"  Steadiness:   {steadiness:.4f}")
 print(f"  Cohesiveness: {cohesiveness:.4f}")
 
@@ -57,8 +58,9 @@ fixture = {
     "low_dim": low_dim.tolist(),
     "params": {
         "k": k,
-        "iteration": 50,
-        "walkNumRatio": 0.3
+        "iteration": 200,
+        "walkNumRatio": 0.3,
+        "alpha": 0.1
     },
     "expected": {
         "steadiness": float(steadiness),

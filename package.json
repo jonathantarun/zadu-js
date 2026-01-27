@@ -41,5 +41,8 @@
     "@saehrimnir/druidjs": "^0.7.3",
     "mnist": "^1.1.0",
     "umap-js": "^1.4.0"
+  },
+  "dependencies": {
+    "hdbscanjs": "^1.0.12"
   }
 }

@@ -2,169 +2,193 @@
  * src/metrics/local/steadiness_cohesiveness.js
  * Steadiness & Cohesiveness metrics for inter-cluster reliability
  *
- * Ported from Python steadiness-cohesiveness package:
+ * Ported from Python ZADU library which uses the SNC package:
+ * https://github.com/hj-n/zadu
  * https://github.com/hj-n/steadiness-cohesiveness
  */
 
 import { calculateDistanceMatrix } from '../../core/distance.js';
-import { getKNNIndices, computeSNNMatrix } from '../../core/snn.js';
+import { getKNNIndices, computeSNNMatrix, normalizeSNNMatrix, computeSNNDistanceMatrix } from '../../core/snn.js';
 import { extractCluster } from '../../core/randomWalk.js';
+import { dbscan, separateClusters } from '../../core/clustering.js';
 
 /**
- * Compute inter-cluster distance distortion
- * Measures how much the cluster structure changes between spaces
- *
- * @param {number[]} clusterIndices - indices of points in the cluster
- * @param {number[][]} sourceDistMatrix - distance matrix of source space
- * @param {number[][]} targetDistMatrix - distance matrix of target space
- * @param {number} alpha - SNN distance penalty parameter
- * @returns {Object} - { distortion, weight }
+ * Normalize a distance matrix by its maximum value
+ * @param {number[][]} distMatrix - distance matrix
+ * @returns {{ normalized: number[][], max: number }}
  */
-function computeDistortion(clusterIndices, sourceDistMatrix, targetDistMatrix, alpha) {
-  if (clusterIndices.length < 2) {
-    return { distortion: 0, weight: 0 };
-  }
+function normalizeDistMatrix(distMatrix) {
+  const n = distMatrix.length;
+  let maxVal = 0;
 
-  let distortion = 0;
-  let weight = 0;
-  const clusterSet = new Set(clusterIndices);
-
-  // For each point in the cluster, compute distance to points outside the cluster
-  for (const i of clusterIndices) {
-    let inClusterDist = 0;
-    let inClusterCount = 0;
-
-    // Average distance to other points IN the cluster (in source space)
-    for (const j of clusterIndices) {
-      if (i !== j) {
-        inClusterDist += sourceDistMatrix[i][j];
-        inClusterCount++;
-      }
-    }
-
-    if (inClusterCount === 0) continue;
-    const avgInClusterDist = inClusterDist / inClusterCount;
-
-    // For points outside cluster, measure distortion
-    for (let j = 0; j < sourceDistMatrix.length; j++) {
-      if (!clusterSet.has(j)) {
-        // Distance in source space
-        const sourceDist = sourceDistMatrix[i][j];
-        // Distance in target space
-        const targetDist = targetDistMatrix[i][j];
-
-        // Relative distance change (normalized by cluster spread)
-        if (avgInClusterDist > 0) {
-          const sourceRelative = sourceDist / avgInClusterDist;
-          const targetRelative = targetDist > 0 ?
-            targetDistMatrix[i][clusterIndices.filter(k => k !== i)[0]] / avgInClusterDist : 1;
-
-          // Penalize when distant points in source become close in target
-          // (for steadiness: points outside cluster in high-dim appear in low-dim cluster)
-          const dist = Math.abs(sourceRelative - targetRelative);
-          distortion += dist * Math.exp(-alpha * sourceDist);
-          weight += Math.exp(-alpha * sourceDist);
-        }
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (distMatrix[i][j] > maxVal) {
+        maxVal = distMatrix[i][j];
       }
     }
   }
 
-  return { distortion, weight };
+  if (maxVal === 0) maxVal = 1;
+
+  const normalized = Array(n).fill(null).map(() => Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      normalized[i][j] = distMatrix[i][j] / maxVal;
+    }
+  }
+
+  return { normalized, max: maxVal };
 }
 
 /**
- * Compute cluster-based distortion for one direction (steadiness or cohesiveness)
- *
- * @param {number[][]} sourceDistMatrix - distance matrix to extract clusters from
- * @param {number[][]} targetDistMatrix - distance matrix to measure distortion in
- * @param {number[][]} sourceSNNMatrix - SNN matrix for cluster extraction
- * @param {number} n - number of points
- * @param {number} iteration - number of iterations
- * @param {number} walkLength - random walk length
- * @param {number} alpha - distance penalty parameter
- * @returns {Object} - { score, localScores }
+ * Compute average SNN similarity between two clusters
+ * @param {number[]} clusterA - indices of points in cluster A
+ * @param {number[]} clusterB - indices of points in cluster B
+ * @param {number[][]} snnMatrix - normalized SNN similarity matrix
+ * @param {number} alpha - distance parameter
+ * @returns {{ rawDist: number, embDist: number }}
  */
-function computeMetric(sourceDistMatrix, targetDistMatrix, sourceSNNMatrix, n, iteration, walkLength, alpha) {
-  const localDistortions = Array(n).fill(0);
-  const localWeights = Array(n).fill(0);
-  let totalDistortion = 0;
-  let totalWeight = 0;
+function computeClusterDistance(clusterA, clusterB, rawSNNMatrix, embSNNMatrix, alpha) {
+  const pairNum = clusterA.length * clusterB.length;
 
-  for (let iter = 0; iter < iteration; iter++) {
-    // Random starting point
-    const startIdx = Math.floor(Math.random() * n);
+  let rawSim = 0;
+  let embSim = 0;
 
-    // Extract cluster using random walk on source space SNN
-    const clusterIndices = extractCluster(sourceSNNMatrix, startIdx, walkLength);
-
-    if (clusterIndices.length < 2) continue;
-
-    // Compute how well the cluster preserves structure in target space
-    // Here we measure: given a cluster in source, how spread out is it in target?
-    let clusterDistortion = 0;
-    let clusterWeight = 0;
-
-    // Compute pairwise distances within cluster in both spaces
-    const clusterPairs = [];
-    for (let i = 0; i < clusterIndices.length; i++) {
-      for (let j = i + 1; j < clusterIndices.length; j++) {
-        const idx1 = clusterIndices[i];
-        const idx2 = clusterIndices[j];
-        clusterPairs.push({ idx1, idx2 });
-      }
+  for (const i of clusterA) {
+    for (const j of clusterB) {
+      rawSim += rawSNNMatrix[i][j];
+      embSim += embSNNMatrix[i][j];
     }
-
-    if (clusterPairs.length === 0) continue;
-
-    // Compute average distances in both spaces
-    let avgSourceDist = 0;
-    let avgTargetDist = 0;
-    for (const { idx1, idx2 } of clusterPairs) {
-      avgSourceDist += sourceDistMatrix[idx1][idx2];
-      avgTargetDist += targetDistMatrix[idx1][idx2];
-    }
-    avgSourceDist /= clusterPairs.length;
-    avgTargetDist /= clusterPairs.length;
-
-    // Avoid division by zero
-    if (avgSourceDist === 0) avgSourceDist = 1e-10;
-    if (avgTargetDist === 0) avgTargetDist = 1e-10;
-
-    // Compute normalized distortion for each pair
-    for (const { idx1, idx2 } of clusterPairs) {
-      const sourceNorm = sourceDistMatrix[idx1][idx2] / avgSourceDist;
-      const targetNorm = targetDistMatrix[idx1][idx2] / avgTargetDist;
-
-      // Distortion: how much the relative distances change
-      const pairDistortion = Math.abs(sourceNorm - targetNorm);
-      const pairWeight = Math.exp(-alpha * sourceDistMatrix[idx1][idx2]);
-
-      clusterDistortion += pairDistortion * pairWeight;
-      clusterWeight += pairWeight;
-
-      // Accumulate local scores
-      localDistortions[idx1] += pairDistortion * pairWeight;
-      localWeights[idx1] += pairWeight;
-      localDistortions[idx2] += pairDistortion * pairWeight;
-      localWeights[idx2] += pairWeight;
-    }
-
-    totalDistortion += clusterDistortion;
-    totalWeight += clusterWeight;
   }
 
-  // Normalize final score
-  const score = totalWeight > 0 ? 1 - (totalDistortion / totalWeight) : 1;
+  rawSim /= pairNum;
+  embSim /= pairNum;
 
-  // Compute local scores
-  const localScores = localDistortions.map((distortion, i) => {
-    if (localWeights[i] > 0) {
-      return 1 - (distortion / localWeights[i]);
+  const rawDist = 1 / (rawSim + alpha);
+  const embDist = 1 / (embSim + alpha);
+
+  return { rawDist, embDist };
+}
+
+/**
+ * Precompute min/max distortion values for normalization
+ * @param {number[][]} rawSNNDistMatrix - SNN distance matrix for raw space
+ * @param {number[][]} embSNNDistMatrix - SNN distance matrix for embedded space
+ * @returns {{ maxCompress: number, minCompress: number, maxStretch: number, minStretch: number }}
+ */
+function computeDistortionBounds(rawSNNDistMatrix, embSNNDistMatrix) {
+  const n = rawSNNDistMatrix.length;
+
+  let dissimMax = -Infinity;
+  let dissimMin = Infinity;
+
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const dissim = rawSNNDistMatrix[i][j] - embSNNDistMatrix[i][j];
+      if (dissim > dissimMax) dissimMax = dissim;
+      if (dissim < dissimMin) dissimMin = dissim;
     }
-    return 1; // No data for this point, assume perfect
-  });
+  }
 
-  return { score: Math.max(0, Math.min(1, score)), localScores };
+  const maxCompress = dissimMax > 0 ? dissimMax : 0;
+  const minCompress = dissimMin > 0 ? dissimMin : 0;
+  const maxStretch = dissimMin < 0 ? -dissimMin : 0;
+  const minStretch = dissimMax < 0 ? -dissimMax : 0;
+
+  return { maxCompress, minCompress, maxStretch, minStretch };
+}
+
+/**
+ * Run a single iteration of the SNC measurement
+ * @param {string} mode - 'steadiness' or 'cohesiveness'
+ * @param {Object} infos - precomputed info objects
+ * @param {number} walkNum - walk length for cluster extraction
+ * @param {number} alpha - distance parameter
+ * @param {number} maxVal - max distortion for normalization
+ * @param {number} minVal - min distortion for normalization
+ * @param {number[]} localDistortions - accumulator for local scores
+ * @param {number[]} localWeights - accumulator for local weights
+ * @returns {{ distortionSum: number, weightSum: number }}
+ */
+function measureSingleIteration(mode, infos, walkNum, alpha, maxVal, minVal, localDistortions, localWeights) {
+  const n = infos.n;
+
+  // Select which space to extract from and which to cluster in
+  let extractKNN, extractSNN, clusterDistMatrix;
+  if (mode === 'steadiness') {
+    // Extract from embedded space, cluster in raw space
+    extractKNN = infos.embKNN;
+    extractSNN = infos.embSNNNorm;
+    clusterDistMatrix = infos.rawSNNDistMatrix;
+  } else {
+    // Extract from raw space, cluster in embedded space
+    extractKNN = infos.rawKNN;
+    extractSNN = infos.rawSNNNorm;
+    clusterDistMatrix = infos.embSNNDistMatrix;
+  }
+
+  // Random seed point
+  const seedIdx = Math.floor(Math.random() * n);
+
+  // Extract cluster via SNN-guided BFS
+  let clusterIndices = extractCluster(extractKNN, extractSNN, seedIdx, walkNum);
+
+  // Need at least 2 points
+  if (clusterIndices.length < 2) {
+    return { distortionSum: 0, weightSum: 0 };
+  }
+
+  // Cluster the extracted points using DBSCAN on the opposite space
+  const labels = dbscan(clusterDistMatrix, clusterIndices);
+  const separatedClusters = separateClusters(clusterIndices, labels);
+
+  let distortionSum = 0;
+  let weightSum = 0;
+
+  // Compute distortion between all pairs of clusters
+  for (let i = 0; i < separatedClusters.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const { rawDist, embDist } = computeClusterDistance(
+        separatedClusters[i],
+        separatedClusters[j],
+        infos.rawSNNNorm,
+        infos.embSNNNorm,
+        alpha
+      );
+
+      // Compute distance difference
+      let distance;
+      if (mode === 'steadiness') {
+        distance = rawDist - embDist; // Points close in emb but far in raw
+      } else {
+        distance = embDist - rawDist; // Points close in raw but far in emb
+      }
+
+      // Only count positive distortion (actual compression/stretching)
+      if (distance <= 0) continue;
+
+      // Normalize distortion
+      const range = maxVal - minVal;
+      const distortion = range > 0 ? (distance - minVal) / range : 0;
+      const weight = separatedClusters[i].length * separatedClusters[j].length;
+
+      distortionSum += distortion * weight;
+      weightSum += weight;
+
+      // Accumulate local scores
+      for (const idx of separatedClusters[i]) {
+        localDistortions[idx] += distortion * weight;
+        localWeights[idx] += weight;
+      }
+      for (const idx of separatedClusters[j]) {
+        localDistortions[idx] += distortion * weight;
+        localWeights[idx] += weight;
+      }
+    }
+  }
+
+  return { distortionSum, weightSum };
 }
 
 /**
@@ -211,46 +235,115 @@ function steadinessCohesiveness(highDim, lowDim, options = {}) {
     throw new Error(`k must be at least 1 (got ${k})`);
   }
 
-  // Calculate distance matrices
-  const highDistMatrix = calculateDistanceMatrix(highDim);
-  const lowDistMatrix = calculateDistanceMatrix(lowDim);
+  // Calculate Euclidean distance matrices
+  const rawDistMatrix = calculateDistanceMatrix(highDim);
+  const embDistMatrix = calculateDistanceMatrix(lowDim);
+
+  // Normalize distance matrices
+  const { normalized: rawDistNorm } = normalizeDistMatrix(rawDistMatrix);
+  const { normalized: embDistNorm } = normalizeDistMatrix(embDistMatrix);
 
   // Get k-nearest neighbors
-  const highKNN = getKNNIndices(highDistMatrix, k);
-  const lowKNN = getKNNIndices(lowDistMatrix, k);
+  const rawKNN = getKNNIndices(rawDistNorm, k);
+  const embKNN = getKNNIndices(embDistNorm, k);
 
   // Compute SNN matrices
-  const highSNNMatrix = computeSNNMatrix(highKNN, k);
-  const lowSNNMatrix = computeSNNMatrix(lowKNN, k);
+  const rawSNN = computeSNNMatrix(rawKNN, k);
+  const embSNN = computeSNNMatrix(embKNN, k);
+
+  // Normalize SNN matrices
+  const rawSNNNorm = normalizeSNNMatrix(rawSNN);
+  const embSNNNorm = normalizeSNNMatrix(embSNN);
+
+  // Compute SNN distance matrices
+  const rawSNNDistMatrix = computeSNNDistanceMatrix(rawSNNNorm, alpha);
+  const embSNNDistMatrix = computeSNNDistanceMatrix(embSNNNorm, alpha);
+
+  // Compute distortion bounds for normalization
+  const { maxCompress, minCompress, maxStretch, minStretch } =
+    computeDistortionBounds(rawSNNDistMatrix, embSNNDistMatrix);
+
+  // Package info for iterations
+  const infos = {
+    n,
+    rawKNN,
+    embKNN,
+    rawSNNNorm,
+    embSNNNorm,
+    rawSNNDistMatrix,
+    embSNNDistMatrix
+  };
 
   // Calculate walk length
-  const walkLength = Math.max(2, Math.floor(n * walkNumRatio));
+  const walkNum = Math.max(2, Math.floor(n * walkNumRatio));
 
-  // Compute steadiness: extract clusters from LOW-dim, measure distortion in HIGH-dim
-  // (Detects false groups: points clustered in low-dim but not in high-dim)
-  const steadinessResult = computeMetric(
-    lowDistMatrix, highDistMatrix, lowSNNMatrix,
-    n, iteration, walkLength, alpha
-  );
+  // Initialize accumulators
+  const steadinessLocalDistortions = Array(n).fill(0);
+  const steadinessLocalWeights = Array(n).fill(0);
+  const cohesivenessLocalDistortions = Array(n).fill(0);
+  const cohesivenessLocalWeights = Array(n).fill(0);
 
-  // Compute cohesiveness: extract clusters from HIGH-dim, measure distortion in LOW-dim
-  // (Detects missing groups: points clustered in high-dim but spread in low-dim)
-  const cohesivenessResult = computeMetric(
-    highDistMatrix, lowDistMatrix, highSNNMatrix,
-    n, iteration, walkLength, alpha
-  );
+  let steadinessDistortionSum = 0;
+  let steadinessWeightSum = 0;
+  let cohesivenessDistortionSum = 0;
+  let cohesivenessWeightSum = 0;
+
+  // Run iterations
+  for (let iter = 0; iter < iteration; iter++) {
+    // Steadiness: extract from emb, measure distortion in raw
+    const steadResult = measureSingleIteration(
+      'steadiness', infos, walkNum, alpha,
+      maxCompress, minCompress,
+      steadinessLocalDistortions, steadinessLocalWeights
+    );
+    steadinessDistortionSum += steadResult.distortionSum;
+    steadinessWeightSum += steadResult.weightSum;
+
+    // Cohesiveness: extract from raw, measure distortion in emb
+    const cohevResult = measureSingleIteration(
+      'cohesiveness', infos, walkNum, alpha,
+      maxStretch, minStretch,
+      cohesivenessLocalDistortions, cohesivenessLocalWeights
+    );
+    cohesivenessDistortionSum += cohevResult.distortionSum;
+    cohesivenessWeightSum += cohevResult.weightSum;
+  }
+
+  // Compute final scores
+  const steadinessScore = steadinessWeightSum > 0
+    ? 1 - (steadinessDistortionSum / steadinessWeightSum)
+    : 1;
+
+  const cohesivenessScore = cohesivenessWeightSum > 0
+    ? 1 - (cohesivenessDistortionSum / cohesivenessWeightSum)
+    : 1;
+
+  // Compute local scores
+  const steadinessLocalScores = steadinessLocalDistortions.map((dist, i) => {
+    if (steadinessLocalWeights[i] > 0) {
+      return Math.max(0, Math.min(1, 1 - (dist / steadinessLocalWeights[i])));
+    }
+    return 1;
+  });
+
+  const cohesivenessLocalScores = cohesivenessLocalDistortions.map((dist, i) => {
+    if (cohesivenessLocalWeights[i] > 0) {
+      return Math.max(0, Math.min(1, 1 - (dist / cohesivenessLocalWeights[i])));
+    }
+    return 1;
+  });
 
   return {
     steadiness: {
-      score: steadinessResult.score,
-      localScores: steadinessResult.localScores,
+      score: Math.max(0, Math.min(1, steadinessScore)),
+      localScores: steadinessLocalScores,
       k,
       n,
       iteration
     },
     cohesiveness: {
-      score: cohesivenessResult.score,
-      localScores: cohesivenessResult.localScores,
+      score: Math.max(0, Math.min(1, cohesivenessScore)),
+      localScores: cohesivenessLocalScores,
       k,
       n,
       iteration
