@@ -6,6 +6,8 @@ A JavaScript library for evaluating dimensionality reduction quality. This is a 
 - **Trustworthiness & Continuity** - Point-level neighborhood preservation
 - **Steadiness & Cohesiveness** - Cluster-level structure preservation
 
+📖 **[Full Metrics Guide](docs/METRICS_GUIDE.md)** - Detailed explanations, hyperparameter tuning, and interpretation guidance.
+
 ## Installation
 
 ### Option 1: Install npm package
