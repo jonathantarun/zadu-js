@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/zadu.js",
     "./trustworthiness": "./src/metrics/local/trustworthiness.js",
-    "./continuity": "./src/metrics/local/continuity.js"
+    "./continuity": "./src/metrics/local/continuity.js",
+    "./steadiness_cohesiveness": "./src/metrics/local/steadiness_cohesiveness.js"
   },
   "files": [
     "src/",
