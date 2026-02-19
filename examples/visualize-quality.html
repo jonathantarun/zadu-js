@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZADU Quality Visualization - Dual Panel</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #1a1a1a;
+      margin-bottom: 20px;
+      font-size: 28px;
+    }
+
+    #controls {
+      background: white;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #controls label {
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+    }
+
+    #controls select, #controls input[type="range"] {
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      background: white;
+    }
+
+    #controls select {
+      min-width: 150px;
+    }
+
+    #controls input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    #threshold-value {
+      background: #e8f4f8;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      color: #0066cc;
+      min-width: 40px;
+      text-align: center;
+    }
+
+    #visualization-container {
+      display: flex;
+      gap: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    .panel {
+      flex: 1;
+      position: relative;
+    }
+
+    .panel-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      text-align: center;
+      color: #1a1a1a;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .panel-subtitle {
+      font-size: 12px;
+      font-weight: normal;
+      color: #666;
+      display: block;
+      margin-top: 5px;
+    }
+
+    #tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 12px;
+      border-radius: 6px;
+      pointer-events: none;
+      visibility: hidden;
+      font-size: 13px;
+      z-index: 1000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      max-width: 250px;
+      line-height: 1.6;
+    }
+
+    #tooltip strong {
+      color: #fff;
+    }
+
+    #summary {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    #summary h2 {
+      font-size: 20px;
+      margin-bottom: 15px;
+      color: #1a1a1a;
+      border-bottom: 2px solid #e0e0e0;
+      padding-bottom: 10px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+
+    .summary-item {
+      background: #f8f9fa;
+      padding: 12px;
+      border-radius: 6px;
+      border-left: 4px solid #0066cc;
+    }
+
+    .summary-item strong {
+      display: block;
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+
+    .summary-item span {
+      font-size: 20px;
+      font-weight: bold;
+      color: #1a1a1a;
+    }
+
+    .legend {
+      position: absolute;
+      bottom: 15px;
+      right: 15px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .legend-title {
+      font-weight: bold;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: #1a1a1a;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 5px;
+      gap: 8px;
+    }
+
+    .legend-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      border: 1px solid #999;
+    }
+
+    .color-scale {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 5px;
+    }
+
+    .gradient-bar {
+      width: 100px;
+      height: 20px;
+      border-radius: 3px;
+      border: 1px solid #999;
+    }
+
+    svg {
+      display: block;
+    }
+
+    .cluster-label {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎨 ZADU Quality Visualization - Interactive Dual-Panel View</h1>
+
+  <!-- Controls -->
+  <div id="controls">
+    <div class="control-group">
+      <label for="metric">Metric:</label>
+      <select id="metric">
+        <option value="trustworthiness">Trustworthiness</option>
+        <option value="continuity">Continuity</option>
+        <option value="steadiness">Steadiness</option>
+        <option value="cohesiveness">Cohesiveness</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="colorScheme">Color Scheme:</label>
+      <select id="colorScheme">
+        <option value="redYellowGreen">Red-Yellow-Green</option>
+        <option value="viridis">Viridis</option>
+        <option value="grayscale">Grayscale</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="threshold">Quality Threshold:</label>
+      <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.7">
+      <span id="threshold-value">0.70</span>
+    </div>
+
+    <div class="control-group">
+      <label>
+        <input type="checkbox" id="sync-zoom" checked> Sync Zoom/Pan
+      </label>
+    </div>
+
+    <div class="control-group">
+      <label>
+        <input type="checkbox" id="show-labels" checked> Show Cluster Labels
+      </label>
+    </div>
+  </div>
+
+  <!-- Dual-Panel Visualization -->
+  <div id="visualization-container">
+    <div class="panel">
+      <div class="panel-title">
+        Cluster View
+        <span class="panel-subtitle">Color-coded by class/cluster</span>
+      </div>
+      <div id="cluster-panel"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">
+        Metric View
+        <span class="panel-subtitle">Color-coded by quality score</span>
+      </div>
+      <div id="metric-panel"></div>
+    </div>
+  </div>
+
+  <!-- Tooltip -->
+  <div id="tooltip"></div>
+
+  <!-- Summary Statistics -->
+  <div id="summary">
+    <h2>Summary Statistics</h2>
+    <div class="summary-grid" id="summary-content">
+      <div class="loading">Select a dataset to visualize...</div>
+    </div>
+  </div>
+
+  <!-- Load pre-computed MNIST data (works with file:// protocol) -->
+  <script src="mnist-200-data.js"></script>
+  <script type="module">
+    // MNIST embedding data loaded from mnist-200-data.js as MNIST_DATA global
+    let sampleEmbedding = [];
+    let sampleLabels = [];
+    let sampleHighDimData = [];
+    let sampleMetricScores = [];
+    let sampleMetrics = {};
+
+    // Load MNIST data from global MNIST_DATA variable (set by mnist-200-data.js)
+    function loadMNISTData() {
+      if (typeof MNIST_DATA === 'undefined') {
+        console.error('MNIST_DATA not found. Run: node export-mnist-embedding.js');
+        return false;
+      }
+      sampleEmbedding = MNIST_DATA.embedding;
+      sampleLabels = MNIST_DATA.labels;
+      sampleHighDimData = MNIST_DATA.highDimData;
+      sampleMetrics = MNIST_DATA.metrics;
+      sampleMetricScores = sampleMetrics[state.metric].local;
+
+      console.log('Loaded MNIST data:', {
+        samples: sampleEmbedding.length,
+        dimensions: sampleHighDimData[0].length,
+        classes: new Set(sampleLabels).size,
+        metrics: Object.keys(sampleMetrics)
+      });
+      return true;
+    }
+
+    // Visualization state
+    let state = {
+      metric: 'trustworthiness',
+      colorScheme: 'redYellowGreen',
+      threshold: 0.7,
+      syncZoom: true,
+      showLabels: true
+    };
+
+    // Color schemes
+    const clusterColors = d3.schemeCategory10;
+
+    const colorSchemes = {
+      redYellowGreen: score => {
+        const clamped = Math.max(0, Math.min(1, score));
+        if (clamped < 0.5) {
+          const t = clamped * 2;
+          return `rgb(255, ${Math.round(255 * t)}, 0)`;
+        } else {
+          const t = (clamped - 0.5) * 2;
+          return `rgb(${Math.round(255 * (1 - t))}, 255, 0)`;
+        }
+      },
+      viridis: score => {
+        const clamped = Math.max(0, Math.min(1, score));
+        const r = Math.round(255 * (0.27 + clamped * 0.5));
+        const g = Math.round(255 * (0.0 + clamped * 0.9));
+        const b = Math.round(255 * (0.33 + clamped * 0.4));
+        return `rgb(${r}, ${g}, ${b})`;
+      },
+      grayscale: score => {
+        const clamped = Math.max(0, Math.min(1, score));
+        const value = Math.round(255 * clamped);
+        return `rgb(${value}, ${value}, ${value})`;
+      }
+    };
+
+    function prepareVisualizationData() {
+      // Compute cluster centroids
+      const clusterData = {};
+      sampleLabels.forEach((label, idx) => {
+        if (!clusterData[label]) {
+          clusterData[label] = { points: [], sumX: 0, sumY: 0 };
+        }
+        clusterData[label].points.push(idx);
+        clusterData[label].sumX += sampleEmbedding[idx][0];
+        clusterData[label].sumY += sampleEmbedding[idx][1];
+      });
+
+      const clusters = Object.entries(clusterData).map(([label, data]) => ({
+        id: label,
+        label: `Digit ${label}`,
+        centroid: [
+          data.sumX / data.points.length,
+          data.sumY / data.points.length
+        ],
+        color: clusterColors[parseInt(label) % clusterColors.length],
+        count: data.points.length
+      }));
+
+      // Prepare point data
+      const points = sampleEmbedding.map((coords, idx) => ({
+        index: idx,
+        coords: coords,
+        cluster: sampleLabels[idx],
+        clusterColor: clusterColors[sampleLabels[idx] % clusterColors.length],
+        metricScore: sampleMetricScores[idx],
+        metricColor: colorSchemes[state.colorScheme](sampleMetricScores[idx]),
+        isProblem: sampleMetricScores[idx] < state.threshold,
+        quality: sampleMetricScores[idx] >= 0.9 ? 'excellent' :
+                 sampleMetricScores[idx] >= 0.8 ? 'good' :
+                 sampleMetricScores[idx] >= 0.7 ? 'fair' : 'poor'
+      }));
+
+      return { points, clusters };
+    }
+
+    function createVisualization() {
+      const vizData = prepareVisualizationData();
+
+      // Clear previous
+      d3.select('#cluster-panel').selectAll('*').remove();
+      d3.select('#metric-panel').selectAll('*').remove();
+
+      const width = 550;
+      const height = 500;
+      const margin = { top: 20, right: 20, bottom: 40, left: 40 };
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+
+      // Scales
+      const xExtent = d3.extent(vizData.points, d => d.coords[0]);
+      const yExtent = d3.extent(vizData.points, d => d.coords[1]);
+
+      const xPadding = (xExtent[1] - xExtent[0]) * 0.1;
+      const yPadding = (yExtent[1] - yExtent[0]) * 0.1;
+
+      const xScale = d3.scaleLinear()
+        .domain([xExtent[0] - xPadding, xExtent[1] + xPadding])
+        .range([0, plotWidth]);
+
+      const yScale = d3.scaleLinear()
+        .domain([yExtent[0] - yPadding, yExtent[1] + yPadding])
+        .range([plotHeight, 0]);
+
+      // Create SVGs
+      const leftSvg = d3.select('#cluster-panel')
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      const rightSvg = d3.select('#metric-panel')
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      // Create groups for zoom
+      const leftG = leftSvg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const rightG = rightSvg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+      // Zoom behavior
+      const zoom = d3.zoom()
+        .scaleExtent([0.5, 10])
+        .on('zoom', (event) => {
+          leftG.attr('transform', `translate(${margin.left},${margin.top}) ${event.transform}`);
+          if (state.syncZoom) {
+            rightG.attr('transform', `translate(${margin.left},${margin.top}) ${event.transform}`);
+          }
+        });
+
+      leftSvg.call(zoom);
+      if (state.syncZoom) {
+        const rightZoom = d3.zoom()
+          .scaleExtent([0.5, 10])
+          .on('zoom', (event) => {
+            rightG.attr('transform', `translate(${margin.left},${margin.top}) ${event.transform}`);
+            leftG.attr('transform', `translate(${margin.left},${margin.top}) ${event.transform}`);
+          });
+        rightSvg.call(rightZoom);
+      } else {
+        const rightZoom = d3.zoom()
+          .scaleExtent([0.5, 10])
+          .on('zoom', (event) => {
+            rightG.attr('transform', `translate(${margin.left},${margin.top}) ${event.transform}`);
+          });
+        rightSvg.call(rightZoom);
+      }
+
+      // LEFT PANEL: Cluster view
+      const leftCircles = leftG.selectAll('circle.point')
+        .data(vizData.points)
+        .join('circle')
+        .attr('class', 'point')
+        .attr('cx', d => xScale(d.coords[0]))
+        .attr('cy', d => yScale(d.coords[1]))
+        .attr('r', 4)
+        .attr('fill', d => d.clusterColor)
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 0.5)
+        .style('cursor', 'pointer');
+
+      // Cluster labels
+      if (state.showLabels) {
+        leftG.selectAll('text.cluster-label')
+          .data(vizData.clusters)
+          .join('text')
+          .attr('class', 'cluster-label')
+          .attr('x', d => xScale(d.centroid[0]))
+          .attr('y', d => yScale(d.centroid[1]))
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'middle')
+          .attr('font-size', '14px')
+          .attr('font-weight', 'bold')
+          .attr('fill', '#000')
+          .attr('stroke', '#fff')
+          .attr('stroke-width', 3)
+          .attr('paint-order', 'stroke')
+          .text(d => d.label);
+      }
+
+      // RIGHT PANEL: Metric view
+      const rightCircles = rightG.selectAll('circle.point')
+        .data(vizData.points)
+        .join('circle')
+        .attr('class', 'point')
+        .attr('cx', d => xScale(d.coords[0]))
+        .attr('cy', d => yScale(d.coords[1]))
+        .attr('r', 4)
+        .attr('fill', d => d.metricColor)
+        .attr('stroke', d => d.isProblem ? 'red' : '#fff')
+        .attr('stroke-width', d => d.isProblem ? 1.5 : 0.5)
+        .style('cursor', 'pointer');
+
+      // Synchronized interactions
+      const tooltip = d3.select('#tooltip');
+
+      function showTooltip(event, d, mode) {
+        const content = mode === 'cluster' ? `
+          <strong>Point ${d.index}</strong><br>
+          <strong>Digit Label:</strong> ${d.cluster}<br>
+          <strong>Cluster:</strong> Digit ${d.cluster}<br>
+          <strong>Position:</strong> (${d.coords[0].toFixed(2)}, ${d.coords[1].toFixed(2)})
+        ` : `
+          <strong>Point ${d.index}</strong><br>
+          <strong>Digit Label:</strong> ${d.cluster}<br>
+          <strong>Cluster:</strong> Digit ${d.cluster}<br>
+          <strong>Position:</strong> (${d.coords[0].toFixed(2)}, ${d.coords[1].toFixed(2)})<br>
+          <strong>Metric Score:</strong> ${d.metricScore.toFixed(4)}<br>
+          <strong>Quality:</strong> ${d.quality}
+        `;
+
+        tooltip
+          .style('visibility', 'visible')
+          .style('left', (event.pageX + 10) + 'px')
+          .style('top', (event.pageY - 10) + 'px')
+          .html(content);
+      }
+
+      function hideTooltip() {
+        tooltip.style('visibility', 'hidden');
+      }
+
+      function highlightPoint(d, highlight) {
+        const r = highlight ? 6 : 4;
+        const strokeWidth = highlight ? 2 : (d.isProblem ? 1.5 : 0.5);
+
+        leftCircles.filter(p => p.index === d.index)
+          .attr('r', r)
+          .attr('stroke-width', highlight ? 2 : 0.5);
+
+        rightCircles.filter(p => p.index === d.index)
+          .attr('r', r)
+          .attr('stroke-width', strokeWidth);
+      }
+
+      [{ circles: leftCircles, mode: 'cluster' }, { circles: rightCircles, mode: 'metric' }].forEach(({ circles, mode }) => {
+        circles
+          .on('mouseover', (event, d) => {
+            highlightPoint(d, true);
+            showTooltip(event, d, mode);
+          })
+          .on('mouseout', (event, d) => {
+            highlightPoint(d, false);
+            hideTooltip();
+          });
+      });
+
+      // Legends
+      drawClusterLegend(leftSvg, vizData.clusters);
+      drawMetricLegend(rightSvg);
+
+      // Update summary
+      updateSummary(vizData);
+    }
+
+    function drawClusterLegend(svg, clusters) {
+      const legend = svg.append('g')
+        .attr('class', 'legend')
+        .attr('transform', 'translate(10, 10)');
+
+      const bg = legend.append('rect')
+        .attr('fill', 'rgba(255, 255, 255, 0.95)')
+        .attr('stroke', '#ddd')
+        .attr('rx', 6);
+
+      legend.append('text')
+        .attr('class', 'legend-title')
+        .attr('x', 10)
+        .attr('y', 15)
+        .attr('font-weight', 'bold')
+        .attr('font-size', '13px')
+        .text('Clusters');
+
+      clusters.forEach((cluster, i) => {
+        const g = legend.append('g')
+          .attr('transform', `translate(10, ${30 + i * 22})`);
+
+        g.append('rect')
+          .attr('width', 16)
+          .attr('height', 16)
+          .attr('fill', cluster.color)
+          .attr('stroke', '#999')
+          .attr('rx', 3);
+
+        g.append('text')
+          .attr('x', 22)
+          .attr('y', 12)
+          .attr('font-size', '12px')
+          .text(`${cluster.label} (${cluster.count})`);
+      });
+
+      const bbox = legend.node().getBBox();
+      bg.attr('width', bbox.width + 20)
+        .attr('height', bbox.height + 10)
+        .attr('x', bbox.x - 10)
+        .attr('y', bbox.y - 5);
+    }
+
+    function drawMetricLegend(svg) {
+      const legend = svg.append('g')
+        .attr('class', 'legend')
+        .attr('transform', 'translate(10, 10)');
+
+      const bg = legend.append('rect')
+        .attr('fill', 'rgba(255, 255, 255, 0.95)')
+        .attr('stroke', '#ddd')
+        .attr('rx', 6);
+
+      legend.append('text')
+        .attr('class', 'legend-title')
+        .attr('x', 10)
+        .attr('y', 15)
+        .attr('font-weight', 'bold')
+        .attr('font-size', '13px')
+        .text(`${state.metric.charAt(0).toUpperCase() + state.metric.slice(1)} Score`);
+
+      // Gradient bar
+      const gradient = svg.append('defs')
+        .append('linearGradient')
+        .attr('id', 'metric-gradient')
+        .attr('x1', '0%')
+        .attr('x2', '100%');
+
+      for (let i = 0; i <= 10; i++) {
+        gradient.append('stop')
+          .attr('offset', `${i * 10}%`)
+          .attr('stop-color', colorSchemes[state.colorScheme](i / 10));
+      }
+
+      legend.append('rect')
+        .attr('x', 10)
+        .attr('y', 25)
+        .attr('width', 100)
+        .attr('height', 20)
+        .attr('fill', 'url(#metric-gradient)')
+        .attr('stroke', '#999')
+        .attr('rx', 3);
+
+      legend.append('text')
+        .attr('x', 10)
+        .attr('y', 60)
+        .attr('font-size', '11px')
+        .text('0.0');
+
+      legend.append('text')
+        .attr('x', 85)
+        .attr('y', 60)
+        .attr('font-size', '11px')
+        .text('1.0');
+
+      const bbox = legend.node().getBBox();
+      bg.attr('width', bbox.width + 20)
+        .attr('height', bbox.height + 10)
+        .attr('x', bbox.x - 10)
+        .attr('y', bbox.y - 5);
+    }
+
+    function updateSummary(vizData) {
+      const scores = vizData.points.map(p => p.metricScore);
+      const avgScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+      const sortedScores = scores.slice().sort((a, b) => a - b);
+      const medianScore = sortedScores[Math.floor(sortedScores.length / 2)];
+
+      const excellentCount = scores.filter(s => s >= 0.9).length;
+      const goodCount = scores.filter(s => s >= 0.8 && s < 0.9).length;
+      const fairCount = scores.filter(s => s >= 0.7 && s < 0.8).length;
+      const poorCount = scores.filter(s => s < 0.7).length;
+
+      const globalScore = sampleMetrics[state.metric]?.global;
+
+      const html = `
+        <div class="summary-item">
+          <strong>Metric</strong>
+          <span>${state.metric.charAt(0).toUpperCase() + state.metric.slice(1)}</span>
+        </div>
+        ${globalScore != null ? `<div class="summary-item">
+          <strong>Global Score</strong>
+          <span>${globalScore.toFixed(4)}</span>
+        </div>` : ''}
+        <div class="summary-item">
+          <strong>Average Local Score</strong>
+          <span>${avgScore.toFixed(4)}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Median Score</strong>
+          <span>${medianScore.toFixed(4)}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Excellent (≥0.9)</strong>
+          <span>${excellentCount}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Good (0.8-0.9)</strong>
+          <span>${goodCount}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Fair (0.7-0.8)</strong>
+          <span>${fairCount}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Poor (<0.7)</strong>
+          <span>${poorCount}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Total Points</strong>
+          <span>${scores.length}</span>
+        </div>
+      `;
+
+      d3.select('#summary-content').html(html);
+    }
+
+    // Event listeners
+    document.getElementById('metric').addEventListener('change', (e) => {
+      state.metric = e.target.value;
+      if (sampleMetrics[state.metric]) {
+        sampleMetricScores = sampleMetrics[state.metric].local;
+      }
+      createVisualization();
+    });
+
+    document.getElementById('colorScheme').addEventListener('change', (e) => {
+      state.colorScheme = e.target.value;
+      createVisualization();
+    });
+
+    document.getElementById('threshold').addEventListener('input', (e) => {
+      state.threshold = parseFloat(e.target.value);
+      document.getElementById('threshold-value').textContent = state.threshold.toFixed(2);
+      createVisualization();
+    });
+
+    document.getElementById('sync-zoom').addEventListener('change', (e) => {
+      state.syncZoom = e.target.checked;
+      createVisualization();
+    });
+
+    document.getElementById('show-labels').addEventListener('change', (e) => {
+      state.showLabels = e.target.checked;
+      createVisualization();
+    });
+
+    // Initialize: Load MNIST data then render
+    function initialize() {
+      if (!loadMNISTData()) {
+        d3.select('#summary-content').html(
+          '<div class="loading">Failed to load data. Run: node export-mnist-embedding.js</div>'
+        );
+        return;
+      }
+      createVisualization();
+    }
+
+    initialize();
+  </script>
+</body>
+</html>

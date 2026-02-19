@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZADU Quality Visualization</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #1a1a1a;
+      margin-bottom: 20px;
+      font-size: 28px;
+    }
+
+    #controls {
+      background: white;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #controls label {
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+    }
+
+    #controls select, #controls input[type="range"] {
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      background: white;
+    }
+
+    #controls select {
+      min-width: 150px;
+    }
+
+    #controls select:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    #controls input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    #threshold-value {
+      background: #e8f4f8;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      color: #0066cc;
+      min-width: 40px;
+      text-align: center;
+    }
+
+    #visualization-container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    #tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 12px;
+      border-radius: 6px;
+      pointer-events: none;
+      visibility: hidden;
+      font-size: 13px;
+      z-index: 1000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      max-width: 280px;
+      line-height: 1.6;
+    }
+
+    #tooltip strong {
+      color: #fff;
+    }
+
+    #summary {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    #summary h2 {
+      font-size: 20px;
+      margin-bottom: 15px;
+      color: #1a1a1a;
+      border-bottom: 2px solid #e0e0e0;
+      padding-bottom: 10px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+
+    .summary-item {
+      background: #f8f9fa;
+      padding: 12px;
+      border-radius: 6px;
+      border-left: 4px solid #0066cc;
+    }
+
+    .summary-item strong {
+      display: block;
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+
+    .summary-item span {
+      font-size: 20px;
+      font-weight: bold;
+      color: #1a1a1a;
+    }
+
+    svg {
+      display: block;
+      margin: 0 auto;
+    }
+
+    .cluster-label {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ZADU Quality Visualization</h1>
+
+  <!-- Controls -->
+  <div id="controls">
+    <div class="control-group">
+      <label for="colorMode">Color By:</label>
+      <select id="colorMode">
+        <option value="cluster">Cluster</option>
+        <option value="metric">Metric Score</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="metric">Metric:</label>
+      <select id="metric" disabled>
+        <option value="trustworthiness">Trustworthiness</option>
+        <option value="continuity">Continuity</option>
+        <option value="steadiness">Steadiness</option>
+        <option value="cohesiveness">Cohesiveness</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="colorScheme">Color Scheme:</label>
+      <select id="colorScheme" disabled>
+        <option value="redYellowGreen">Red-Yellow-Green</option>
+        <option value="viridis">Viridis</option>
+        <option value="grayscale">Grayscale</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="threshold">Quality Threshold:</label>
+      <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.7">
+      <span id="threshold-value">0.70</span>
+    </div>
+
+    <div class="control-group">
+      <label>
+        <input type="checkbox" id="show-labels" checked> Show Labels
+      </label>
+    </div>
+  </div>
+
+  <!-- Visualization -->
+  <div id="visualization-container">
+    <div id="chart"></div>
+  </div>
+
+  <!-- Tooltip -->
+  <div id="tooltip"></div>
+
+  <!-- Summary Statistics -->
+  <div id="summary">
+    <h2>Summary Statistics</h2>
+    <div class="summary-grid" id="summary-content">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Load pre-computed MNIST data -->
+  <script src="mnist-200-data.js"></script>
+  <script type="module">
+    let sampleEmbedding = [];
+    let sampleLabels = [];
+    let sampleHighDimData = [];
+    let sampleMetricScores = [];
+    let sampleMetrics = {};
+    let highDimNeighbors = [];
+
+    // Inlined from src/core/distance.js
+    function euclideanDistance(point1, point2) {
+      return Math.sqrt(
+        point1.reduce((sum, val, i) => sum + Math.pow(val - point2[i], 2), 0)
+      );
+    }
+
+    function calculateDistanceMatrix(data) {
+      const n = data.length;
+      const distMatrix = Array(n).fill(null).map(() => Array(n).fill(0));
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const dist = euclideanDistance(data[i], data[j]);
+          distMatrix[i][j] = dist;
+          distMatrix[j][i] = dist;
+        }
+      }
+      return distMatrix;
+    }
+
+    // Inlined from src/core/neighbors.js
+    function getKNearestNeighbors(distMatrix, k) {
+      const n = distMatrix.length;
+      const neighbors = [];
+      for (let i = 0; i < n; i++) {
+        const distances = distMatrix[i]
+          .map((dist, idx) => ({ idx, dist }))
+          .filter(item => item.idx !== i);
+        distances.sort((a, b) => a.dist - b.dist);
+        neighbors.push(distances.slice(0, k).map(item => item.idx));
+      }
+      return neighbors;
+    }
+
+    function loadMNISTData() {
+      if (typeof MNIST_DATA === 'undefined') {
+        console.error('MNIST_DATA not found. Run: node export-mnist-embedding.js');
+        return false;
+      }
+      sampleEmbedding = MNIST_DATA.embedding;
+      sampleLabels = MNIST_DATA.labels;
+      sampleHighDimData = MNIST_DATA.highDimData;
+      sampleMetrics = MNIST_DATA.metrics;
+      sampleMetricScores = sampleMetrics[state.metric].local;
+
+      // Precompute k-nearest neighbors in high-dimensional space
+      const k = MNIST_DATA.metadata.metric_k || 7;
+      const highDimDistMatrix = calculateDistanceMatrix(sampleHighDimData);
+      highDimNeighbors = getKNearestNeighbors(highDimDistMatrix, k);
+
+      return true;
+    }
+
+    // State
+    let state = {
+      colorMode: 'cluster',
+      metric: 'trustworthiness',
+      colorScheme: 'redYellowGreen',
+      threshold: 0.7,
+      showLabels: true,
+      selectedPoint: null
+    };
+
+    // Colors
+    const clusterColors = d3.schemeCategory10;
+
+    const colorSchemes = {
+      redYellowGreen: score => {
+        const c = Math.max(0, Math.min(1, score));
+        if (c < 0.5) {
+          const t = c * 2;
+          return `rgb(255, ${Math.round(255 * t)}, 0)`;
+        } else {
+          const t = (c - 0.5) * 2;
+          return `rgb(${Math.round(255 * (1 - t))}, 255, 0)`;
+        }
+      },
+      viridis: score => {
+        const c = Math.max(0, Math.min(1, score));
+        return `rgb(${Math.round(255 * (0.27 + c * 0.5))}, ${Math.round(255 * (0.0 + c * 0.9))}, ${Math.round(255 * (0.33 + c * 0.4))})`;
+      },
+      grayscale: score => {
+        const v = Math.round(255 * Math.max(0, Math.min(1, score)));
+        return `rgb(${v}, ${v}, ${v})`;
+      }
+    };
+
+    function prepareData() {
+      const clusterData = {};
+      sampleLabels.forEach((label, idx) => {
+        if (!clusterData[label]) {
+          clusterData[label] = { points: [], sumX: 0, sumY: 0 };
+        }
+        clusterData[label].points.push(idx);
+        clusterData[label].sumX += sampleEmbedding[idx][0];
+        clusterData[label].sumY += sampleEmbedding[idx][1];
+      });
+
+      const clusters = Object.entries(clusterData).map(([label, data]) => ({
+        id: label,
+        label: `Digit ${label}`,
+        centroid: [data.sumX / data.points.length, data.sumY / data.points.length],
+        color: clusterColors[parseInt(label) % clusterColors.length],
+        count: data.points.length
+      }));
+
+      const points = sampleEmbedding.map((coords, idx) => ({
+        index: idx,
+        coords,
+        cluster: sampleLabels[idx],
+        clusterColor: clusterColors[sampleLabels[idx] % clusterColors.length],
+        metricScore: sampleMetricScores[idx],
+        metricColor: colorSchemes[state.colorScheme](sampleMetricScores[idx]),
+        isProblem: sampleMetricScores[idx] < state.threshold,
+        quality: sampleMetricScores[idx] >= 0.9 ? 'excellent' :
+                 sampleMetricScores[idx] >= 0.8 ? 'good' :
+                 sampleMetricScores[idx] >= 0.7 ? 'fair' : 'poor'
+      }));
+
+      return { points, clusters };
+    }
+
+    function createVisualization() {
+      const vizData = prepareData();
+
+      d3.select('#chart').selectAll('*').remove();
+
+      const width = 1100;
+      const height = 600;
+      const margin = { top: 20, right: 20, bottom: 40, left: 40 };
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+
+      const xExtent = d3.extent(vizData.points, d => d.coords[0]);
+      const yExtent = d3.extent(vizData.points, d => d.coords[1]);
+      const xPad = (xExtent[1] - xExtent[0]) * 0.1;
+      const yPad = (yExtent[1] - yExtent[0]) * 0.1;
+
+      const xScale = d3.scaleLinear()
+        .domain([xExtent[0] - xPad, xExtent[1] + xPad])
+        .range([0, plotWidth]);
+
+      const yScale = d3.scaleLinear()
+        .domain([yExtent[0] - yPad, yExtent[1] + yPad])
+        .range([plotHeight, 0]);
+
+      const svg = d3.select('#chart')
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      const g = svg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+      // Zoom
+      const zoom = d3.zoom()
+        .scaleExtent([0.5, 10])
+        .on('zoom', (event) => {
+          g.attr('transform', `translate(${margin.left},${margin.top}) ${event.transform}`);
+        });
+      svg.call(zoom);
+
+      // Draw points — problem points (black outline) drawn on top
+      const sorted = vizData.points.slice().sort((a, b) => a.isProblem - b.isProblem);
+
+      const circles = g.selectAll('circle.point')
+        .data(sorted, d => d.index)
+        .join('circle')
+        .attr('class', 'point')
+        .attr('cx', d => xScale(d.coords[0]))
+        .attr('cy', d => yScale(d.coords[1]))
+        .attr('r', d => d.isProblem ? 5 : 4)
+        .attr('fill', d => state.colorMode === 'cluster' ? d.clusterColor : d.metricColor)
+        .attr('stroke', d => d.isProblem ? '#000' : '#fff')
+        .attr('stroke-width', d => d.isProblem ? 3 : 0.5)
+        .style('cursor', 'pointer');
+
+      // Cluster labels
+      if (state.showLabels) {
+        g.selectAll('text.cluster-label')
+          .data(vizData.clusters)
+          .join('text')
+          .attr('class', 'cluster-label')
+          .attr('x', d => xScale(d.centroid[0]))
+          .attr('y', d => yScale(d.centroid[1]))
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'middle')
+          .attr('font-size', '14px')
+          .attr('font-weight', 'bold')
+          .attr('fill', '#000')
+          .attr('stroke', '#fff')
+          .attr('stroke-width', 3)
+          .attr('paint-order', 'stroke')
+          .text(d => d.label);
+      }
+
+      // Tooltip
+      const tooltip = d3.select('#tooltip');
+
+      circles
+        .on('mouseover', (event, d) => {
+          circles.filter(p => p.index === d.index)
+            .attr('r', 7)
+            .attr('stroke-width', d.isProblem ? 4 : 2);
+
+          let content = `
+            <strong>Point ${d.index}</strong><br>
+            <strong>Digit Label:</strong> ${d.cluster}<br>
+            <strong>Position:</strong> (${d.coords[0].toFixed(2)}, ${d.coords[1].toFixed(2)})<br>
+            <strong>${state.metric.charAt(0).toUpperCase() + state.metric.slice(1)}:</strong> ${d.metricScore.toFixed(4)}<br>
+            <strong>Quality:</strong> ${d.quality}
+          `;
+          if (d.isProblem) {
+            content += `<br><strong style="color: #ff6b6b;">Below threshold (${state.threshold.toFixed(2)})</strong>`;
+          }
+
+          tooltip
+            .style('visibility', 'visible')
+            .style('left', (event.pageX + 10) + 'px')
+            .style('top', (event.pageY - 10) + 'px')
+            .html(content);
+        })
+        .on('mouseout', (event, d) => {
+          // Only restore size if not the selected point or its neighbor
+          if (state.selectedPoint === null) {
+            circles.filter(p => p.index === d.index)
+              .attr('r', d.isProblem ? 5 : 4)
+              .attr('stroke-width', d.isProblem ? 3 : 0.5);
+          } else {
+            const neighbors = new Set(highDimNeighbors[state.selectedPoint]);
+            const isSelected = d.index === state.selectedPoint;
+            const isNeighbor = neighbors.has(d.index);
+            circles.filter(p => p.index === d.index)
+              .attr('r', isSelected ? 8 : isNeighbor ? 6 : (d.isProblem ? 5 : 4))
+              .attr('stroke-width', isSelected ? 3 : isNeighbor ? 2 : (d.isProblem ? 3 : 0.5));
+          }
+
+          tooltip.style('visibility', 'hidden');
+        })
+        .on('click', (event, d) => {
+          event.stopPropagation();
+          const neighbors = new Set(highDimNeighbors[d.index]);
+
+          state.selectedPoint = d.index;
+
+          // Dim non-neighbors, highlight selected + neighbors
+          circles
+            .attr('opacity', p => {
+              if (p.index === d.index) return 1;
+              if (neighbors.has(p.index)) return 1;
+              return 0.1;
+            })
+            .attr('r', p => {
+              if (p.index === d.index) return 8;
+              if (neighbors.has(p.index)) return 6;
+              return p.isProblem ? 5 : 4;
+            })
+            .attr('stroke', p => {
+              if (p.index === d.index) return '#ff4444';
+              if (neighbors.has(p.index)) return '#4444ff';
+              return p.isProblem ? '#000' : '#fff';
+            })
+            .attr('stroke-width', p => {
+              if (p.index === d.index) return 3;
+              if (neighbors.has(p.index)) return 2;
+              return p.isProblem ? 3 : 0.5;
+            });
+        });
+
+      // Click on SVG background to deselect
+      svg.on('click', () => {
+        if (state.selectedPoint !== null) {
+          state.selectedPoint = null;
+          circles
+            .attr('opacity', 1)
+            .attr('r', d => d.isProblem ? 5 : 4)
+            .attr('stroke', d => d.isProblem ? '#000' : '#fff')
+            .attr('stroke-width', d => d.isProblem ? 3 : 0.5);
+        }
+      });
+
+      // Restore selection state after redraw (e.g., when changing color mode)
+      if (state.selectedPoint !== null && highDimNeighbors[state.selectedPoint]) {
+        const neighbors = new Set(highDimNeighbors[state.selectedPoint]);
+        circles
+          .attr('opacity', p => {
+            if (p.index === state.selectedPoint) return 1;
+            if (neighbors.has(p.index)) return 1;
+            return 0.1;
+          })
+          .attr('r', p => {
+            if (p.index === state.selectedPoint) return 8;
+            if (neighbors.has(p.index)) return 6;
+            return p.isProblem ? 5 : 4;
+          })
+          .attr('stroke', p => {
+            if (p.index === state.selectedPoint) return '#ff4444';
+            if (neighbors.has(p.index)) return '#4444ff';
+            return p.isProblem ? '#000' : '#fff';
+          })
+          .attr('stroke-width', p => {
+            if (p.index === state.selectedPoint) return 3;
+            if (neighbors.has(p.index)) return 2;
+            return p.isProblem ? 3 : 0.5;
+          });
+      }
+
+      // Legend
+      drawLegend(svg, vizData.clusters);
+
+      // Summary
+      updateSummary(vizData);
+    }
+
+    function drawLegend(svg, clusters) {
+      const legend = svg.append('g')
+        .attr('class', 'legend')
+        .attr('transform', 'translate(10, 10)');
+
+      const bg = legend.append('rect')
+        .attr('fill', 'rgba(255, 255, 255, 0.95)')
+        .attr('stroke', '#ddd')
+        .attr('rx', 6);
+
+      if (state.colorMode === 'cluster') {
+        legend.append('text')
+          .attr('x', 10).attr('y', 15)
+          .attr('font-weight', 'bold').attr('font-size', '13px')
+          .text('Clusters');
+
+        clusters.forEach((cluster, i) => {
+          const row = legend.append('g')
+            .attr('transform', `translate(10, ${30 + i * 22})`);
+          row.append('rect')
+            .attr('width', 16).attr('height', 16)
+            .attr('fill', cluster.color).attr('stroke', '#999').attr('rx', 3);
+          row.append('text')
+            .attr('x', 22).attr('y', 12).attr('font-size', '12px')
+            .text(`${cluster.label} (${cluster.count})`);
+        });
+      } else {
+        const metricName = state.metric.charAt(0).toUpperCase() + state.metric.slice(1);
+        legend.append('text')
+          .attr('x', 10).attr('y', 15)
+          .attr('font-weight', 'bold').attr('font-size', '13px')
+          .text(`${metricName} Score`);
+
+        const gradient = svg.append('defs')
+          .append('linearGradient')
+          .attr('id', 'metric-gradient')
+          .attr('x1', '0%').attr('x2', '100%');
+
+        for (let i = 0; i <= 10; i++) {
+          gradient.append('stop')
+            .attr('offset', `${i * 10}%`)
+            .attr('stop-color', colorSchemes[state.colorScheme](i / 10));
+        }
+
+        legend.append('rect')
+          .attr('x', 10).attr('y', 25)
+          .attr('width', 100).attr('height', 20)
+          .attr('fill', 'url(#metric-gradient)')
+          .attr('stroke', '#999').attr('rx', 3);
+
+        legend.append('text').attr('x', 10).attr('y', 60).attr('font-size', '11px').text('0.0');
+        legend.append('text').attr('x', 85).attr('y', 60).attr('font-size', '11px').text('1.0');
+      }
+
+      // Black circle legend entry
+      const problemY = state.colorMode === 'cluster' ? 30 + clusters.length * 22 : 75;
+      const row = legend.append('g')
+        .attr('transform', `translate(10, ${problemY})`);
+      row.append('circle')
+        .attr('cx', 8).attr('cy', 8).attr('r', 6)
+        .attr('fill', '#ccc').attr('stroke', '#000').attr('stroke-width', 3);
+      row.append('text')
+        .attr('x', 22).attr('y', 12).attr('font-size', '12px')
+        .text(`Below threshold (${state.threshold.toFixed(2)})`);
+
+      const bbox = legend.node().getBBox();
+      bg.attr('width', bbox.width + 20)
+        .attr('height', bbox.height + 10)
+        .attr('x', bbox.x - 10)
+        .attr('y', bbox.y - 5);
+    }
+
+    function updateSummary(vizData) {
+      const scores = vizData.points.map(p => p.metricScore);
+      const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
+      const sorted = scores.slice().sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const globalScore = sampleMetrics[state.metric]?.global;
+      const problemCount = scores.filter(s => s < state.threshold).length;
+
+      const html = `
+        <div class="summary-item">
+          <strong>Metric</strong>
+          <span>${state.metric.charAt(0).toUpperCase() + state.metric.slice(1)}</span>
+        </div>
+        ${globalScore != null ? `<div class="summary-item">
+          <strong>Global Score</strong>
+          <span>${globalScore.toFixed(4)}</span>
+        </div>` : ''}
+        <div class="summary-item">
+          <strong>Average Local Score</strong>
+          <span>${avg.toFixed(4)}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Median Score</strong>
+          <span>${median.toFixed(4)}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Below Threshold</strong>
+          <span>${problemCount} / ${scores.length}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Excellent (&ge;0.9)</strong>
+          <span>${scores.filter(s => s >= 0.9).length}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Good (0.8-0.9)</strong>
+          <span>${scores.filter(s => s >= 0.8 && s < 0.9).length}</span>
+        </div>
+        <div class="summary-item">
+          <strong>Poor (&lt;0.7)</strong>
+          <span>${scores.filter(s => s < 0.7).length}</span>
+        </div>
+      `;
+      d3.select('#summary-content').html(html);
+    }
+
+    // Controls
+    document.getElementById('colorMode').addEventListener('change', (e) => {
+      state.colorMode = e.target.value;
+      const isMetric = state.colorMode === 'metric';
+      document.getElementById('metric').disabled = !isMetric;
+      document.getElementById('colorScheme').disabled = !isMetric;
+      createVisualization();
+    });
+
+    document.getElementById('metric').addEventListener('change', (e) => {
+      state.metric = e.target.value;
+      if (sampleMetrics[state.metric]) {
+        sampleMetricScores = sampleMetrics[state.metric].local;
+      }
+      createVisualization();
+    });
+
+    document.getElementById('colorScheme').addEventListener('change', (e) => {
+      state.colorScheme = e.target.value;
+      createVisualization();
+    });
+
+    document.getElementById('threshold').addEventListener('input', (e) => {
+      state.threshold = parseFloat(e.target.value);
+      document.getElementById('threshold-value').textContent = state.threshold.toFixed(2);
+      createVisualization();
+    });
+
+    document.getElementById('show-labels').addEventListener('change', (e) => {
+      state.showLabels = e.target.checked;
+      createVisualization();
+    });
+
+    // Init
+    function initialize() {
+      if (!loadMNISTData()) {
+        d3.select('#summary-content').html(
+          '<div class="loading">Failed to load data. Run: node export-mnist-embedding.js</div>'
+        );
+        return;
+      }
+      createVisualization();
+    }
+
+    initialize();
+  </script>
+</body>
+</html>
