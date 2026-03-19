@@ -8,6 +8,11 @@ A JavaScript library for evaluating dimensionality reduction quality. This is a 
 
 📖 **[Full Metrics Guide](docs/METRICS_GUIDE.md)** - Detailed explanations, hyperparameter tuning, and interpretation guidance.
 
+## Deployed Example
+Check out the deployed example: https://jonathantarun.github.io/zadu-js/examples/visualize-tuning-digits.html
+
+
+
 ## Installation
 
 ### Option 1: Install npm package
