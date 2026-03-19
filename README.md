@@ -8,6 +8,10 @@ A JavaScript library for evaluating dimensionality reduction quality. This is a 
 
 📖 **[Full Metrics Guide](docs/METRICS_GUIDE.md)** - Detailed explanations, hyperparameter tuning, and interpretation guidance.
 
+## Interactive Demo
+
+**[Try it on Observable](https://observablehq.com/d/52c1da95fde0bdc9)** — a live notebook showing how to import and use `zadu-js` metrics directly from npm in the browser. Computes a UMAP embedding on 200 MNIST samples using DruidJS, then evaluates it with Trustworthiness & Continuity. No installation required.
+
 ## Deployed Example
 Check out the deployed example: https://jonathantarun.github.io/zadu-js/examples/visualize-tuning-digits.html
 
