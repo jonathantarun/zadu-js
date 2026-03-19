@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MNIST UMAP - Before/After Comparison</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: white;
+    }
+    .poster-container {
+      max-width: 1800px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      font-size: 36px;
+      color: #333;
+      margin-bottom: 40px;
+    }
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 50px;
+      margin: 30px 0;
+    }
+    .side {
+      text-align: center;
+    }
+    .side h2 {
+      font-size: 32px;
+      color: #333;
+      margin: 10px 0;
+    }
+    .side h3 {
+      font-size: 22px;
+      color: #666;
+      font-style: italic;
+      font-weight: normal;
+      margin: 5px 0 25px 0;
+    }
+    canvas {
+      border: 3px solid #333;
+      background: white;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .caption {
+      font-size: 26px;
+      font-weight: bold;
+      margin: 25px 20px;
+      padding: 20px;
+      border-radius: 4px;
+      line-height: 1.4;
+    }
+    .caption.problem {
+      color: #c62828;
+      background: #ffebee;
+      border-left: 6px solid #c62828;
+    }
+    .caption.solution {
+      color: #2e7d32;
+      background: #e8f5e9;
+      border-left: 6px solid #2e7d32;
+    }
+    .legend {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 15px;
+      margin: 20px 0;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    .gradient-bar {
+      width: 350px;
+      height: 30px;
+      background: linear-gradient(to right, #1565c0, #ef5350);
+      border: 2px solid #333;
+      border-radius: 4px;
+    }
+    .legend-labels {
+      display: flex;
+      justify-content: space-between;
+      width: 350px;
+      margin: 5px auto;
+      font-size: 14px;
+      color: #666;
+    }
+    .metrics {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 15px 20px;
+      font-size: 18px;
+    }
+    #loading {
+      text-align: center;
+      font-size: 24px;
+      padding: 100px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="poster-container">
+    <h1>Revealing Hidden Distortions in Dimensionality Reduction</h1>
+
+    <div id="loading">⏳ Running UMAP on 1000 MNIST samples... (10-30 seconds)</div>
+
+    <div class="comparison" id="comparison" style="display: none;">
+      <!-- LEFT -->
+      <div class="side">
+        <h2>Standard UMAP</h2>
+        <h3>(What analysts currently see)</h3>
+        
+        <canvas id="standard" width="750" height="750"></canvas>
+        
+        <div class="caption problem">
+          "Which clusters are trustworthy?<br>Impossible to tell without quality metrics."
+        </div>
+        
+        <div class="metrics">
+          <strong>No Quality Information</strong><br>
+          ✗ All 1000 points appear equally valid<br>
+          ✗ Cannot identify projection artifacts
+        </div>
+      </div>
+
+      <!-- RIGHT -->
+      <div class="side">
+        <h2>Quality-Aware UMAP</h2>
+        <h3>(With ZADU.js evaluation)</h3>
+        
+        <canvas id="zadu" width="750" height="750"></canvas>
+        
+        <div style="margin: 20px 0; font-size: 18px;">
+          <span style="color: #1565c0; font-weight: bold;">● Blue: Trustworthiness &lt; 0.96 (Unreliable)</span><br>
+          <span style="color: #ef5350; font-weight: bold;">● Red: Trustworthiness ≥ 0.96 (Trustworthy)</span>
+        </div>
+        
+        <div class="caption solution">
+          "Now you can see which regions<br>are artifacts vs. genuine patterns!"
+        </div>
+        
+        <div class="metrics" id="zaduMetrics">Calculating...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/umap-js@1.4.0/lib/umap-js.min.js"></script>
+  
+  <script>
+    // ZADU.js
+    class ZADU {
+      static euclideanDistance(p1, p2) {
+        return Math.sqrt(p1.reduce((sum, v, i) => sum + Math.pow(v - p2[i], 2), 0));
+      }
+
+      static calculateDistanceMatrix(data) {
+        const n = data.length;
+        const dm = Array(n).fill(null).map(() => Array(n).fill(0));
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const d = this.euclideanDistance(data[i], data[j]);
+            dm[i][j] = dm[j][i] = d;
+          }
+        }
+        return dm;
+      }
+
+      static getKNearestNeighbors(dm, k) {
+        return dm.map((dists, i) => 
+          dists.map((d, idx) => ({idx, d}))
+               .filter(x => x.idx !== i)
+               .sort((a, b) => a.d - b.d)
+               .slice(0, k)
+               .map(x => x.idx)
+        );
+      }
+
+      static getRankings(dists, self) {
+        const pairs = dists.map((d, idx) => ({idx, d}))
+                           .filter(x => x.idx !== self)
+                           .sort((a, b) => a.d - b.d);
+        const ranks = Array(dists.length).fill(-1);
+        pairs.forEach((p, rank) => ranks[p.idx] = rank);
+        return ranks;
+      }
+
+      static trustworthiness(hd, ld, k = 20) {
+        const n = hd.length;
+        const hdm = this.calculateDistanceMatrix(hd);
+        const ldm = this.calculateDistanceMatrix(ld);
+        const lnn = this.getKNearestNeighbors(ldm, k);
+        const hrk = hdm.map((d, i) => this.getRankings(d, i));
+        
+        let tot = 0;
+        const loc = [];
+        
+        for (let i = 0; i < n; i++) {
+          let err = 0;
+          for (let j of lnn[i]) {
+            if (hrk[i][j] >= k) err += hrk[i][j] - k;
+          }
+          loc.push(err);
+          tot += err;
+        }
+        
+        const nf = 2 / (n * k * (2 * n - 3 * k - 1));
+        const score = 1 - nf * tot;
+        const localScores = loc.map(e => 1 - (2 * e / (k * (2 * n - 3 * k - 1))));
+        
+        return {score, localScores, k, n};
+      }
+    }
+
+    // Generate data
+    const mnistOriginal = [];
+    const labels = [];
+
+    console.log('Generating MNIST-like data...');
+
+    for (let digit = 0; digit < 10; digit++) {
+      for (let i = 0; i < 100; i++) {
+        const original = Array(784).fill(0).map((_, pixelIdx) => {
+          const row = Math.floor(pixelIdx / 28);
+          const col = pixelIdx % 28;
+          
+          let activation = 0;
+          if (digit === 0) {
+            const cx = 14, cy = 14;
+            const dist = Math.sqrt((row - cy) ** 2 + (col - cx) ** 2);
+            activation = (dist > 6 && dist < 10) ? 0.8 : 0.1;
+          } else if (digit === 1) {
+            activation = (col > 12 && col < 16) ? 0.8 : 0.1;
+          } else if (digit === 8) {
+            const dist1 = Math.sqrt((row - 10) ** 2 + (col - 14) ** 2);
+            const dist2 = Math.sqrt((row - 18) ** 2 + (col - 14) ** 2);
+            activation = ((dist1 > 2 && dist1 < 5) || (dist2 > 2 && dist2 < 5)) ? 0.8 : 0.1;
+          } else {
+            activation = ((row + col + digit * 7) % 15 > 7) ? 0.6 : 0.2;
+          }
+          
+          return Math.max(0, Math.min(1, activation + (Math.random() - 0.5) * 0.15));
+        });
+        
+        mnistOriginal.push(original);
+        labels.push(digit);
+      }
+    }
+
+    console.log('Data ready:', mnistOriginal.length, 'samples');
+
+    // Run UMAP
+    setTimeout(() => {
+      console.log('Starting UMAP...');
+      
+      const umap = new UMAP.UMAP({
+        nComponents: 2,
+        nNeighbors: 15,
+        minDist: 0.3,      // Increased from 0.1 for more spread
+        spread: 2.0        // Increased from 1.0 for larger clusters
+      });
+
+      const embedding = umap.fit(mnistOriginal);
+      
+      console.log('UMAP done!');
+      
+      // Hide loading
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('comparison').style.display = 'grid';
+      
+      // Calculate ZADU
+      console.log('Calculating ZADU...');
+      const result = ZADU.trustworthiness(mnistOriginal, embedding, 15);
+      
+      console.log('Trustworthiness:', result.score);
+      
+      // Find cluster centers
+      const digitCenters = [];
+      for (let digit = 0; digit < 10; digit++) {
+        const digitPoints = embedding.filter((_, i) => labels[i] === digit);
+        const avgX = digitPoints.reduce((sum, p) => sum + p[0], 0) / digitPoints.length;
+        const avgY = digitPoints.reduce((sum, p) => sum + p[1], 0) / digitPoints.length;
+        digitCenters.push([avgX, avgY]);
+      }
+      
+      // Color function - CATEGORICAL
+      function scoreToColor(score) {
+        if (score < 0.96) {
+          return '#1565c0';  // Blue - Low trustworthiness
+        } else {
+          return '#ef5350';  // Red - High trustworthiness
+        }
+      }
+      
+      // Draw function
+      function drawPlot(canvasId, colors = null) {
+        const canvas = document.getElementById(canvasId);
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        
+        const xs = embedding.map(p => p[0]);
+        const ys = embedding.map(p => p[1]);
+        const xmin = Math.min(...xs) - 1;
+        const xmax = Math.max(...xs) + 1;
+        const ymin = Math.min(...ys) - 1;
+        const ymax = Math.max(...ys) + 1;
+        
+        const pad = 50;
+        const scale = (x, y) => ({
+          x: pad + (x - xmin) / (xmax - xmin) * (w - 2*pad),
+          y: h - (pad + (y - ymin) / (ymax - ymin) * (h - 2*pad))
+        });
+        
+        // Grid
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 8; i++) {
+          const x = pad + (w - 2*pad) * i / 8;
+          ctx.beginPath();
+          ctx.moveTo(x, pad);
+          ctx.lineTo(x, h - pad);
+          ctx.stroke();
+          
+          const y = pad + (h - 2*pad) * i / 8;
+          ctx.beginPath();
+          ctx.moveTo(pad, y);
+          ctx.lineTo(w - pad, y);
+          ctx.stroke();
+        }
+        
+        // Points
+        embedding.forEach((p, i) => {
+          const pos = scale(p[0], p[1]);
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 6, 0, 2*Math.PI);  // Increased from 4 to 6
+          ctx.fillStyle = colors ? colors[i] : '#1976d2';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        });
+        
+        // Labels
+        ctx.fillStyle = '#000';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.font = 'bold 32px Arial';
+        
+        digitCenters.forEach((center, digit) => {
+          const pos = scale(center[0], center[1]);
+          ctx.strokeText(digit.toString(), pos.x - 12, pos.y + 12);
+          ctx.fillText(digit.toString(), pos.x - 12, pos.y + 12);
+        });
+      }
+      
+      // Draw both
+      drawPlot('standard', null);
+      
+      const colors = result.localScores.map(scoreToColor);
+      drawPlot('zadu', colors);
+      
+      // Metrics
+      const poorCount = result.localScores.filter(s => s < 0.7).length;
+      const goodCount = result.localScores.filter(s => s >= 0.85).length;
+      
+      document.getElementById('zaduMetrics').innerHTML = `
+        <strong style="font-size: 22px;">Trustworthiness: ${result.score.toFixed(3)}</strong><br>
+        <div style="margin-top: 10px; font-size: 18px;">
+          <span style="color: #ef5350;">✓ ${goodCount} Trustworthy</span> | 
+          <span style="color: #1565c0;">✗ ${poorCount} Unreliable</span>
+        </div>
+      `;
+      
+      console.log('Complete!');
+    }, 100);
+  </script>
+</body>
+</html>

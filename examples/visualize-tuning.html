@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZADU Interactive Parameter Tuning</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@saehrimnir/druidjs@0.7.3/dist/druid.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+      padding: 20px;
+    }
+
+    h1 { color: #1a1a1a; margin-bottom: 20px; font-size: 26px; }
+
+    .card {
+      background: white;
+      padding: 20px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .card h2 {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 12px;
+      border-bottom: 2px solid #e0e0e0;
+      padding-bottom: 8px;
+    }
+
+    /* Recommendations */
+    #recommendations { display: flex; flex-wrap: wrap; gap: 10px; }
+
+    .rec-item {
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      flex: 1 1 300px;
+      border-left: 4px solid;
+    }
+    .rec-item.high { background: #fff5f5; border-color: #e53e3e; }
+    .rec-item.medium { background: #fffaf0; border-color: #dd6b20; }
+    .rec-item.low { background: #fffff0; border-color: #d69e2e; }
+    .rec-item.good { background: #f0fff4; border-color: #38a169; }
+
+    .rec-metric { font-weight: 700; }
+    .rec-score { font-family: monospace; font-weight: 600; }
+    .rec-suggestion { color: #555; margin-top: 4px; }
+
+    /* Controls */
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      align-items: flex-end;
+    }
+
+    .control-group { display: flex; flex-direction: column; gap: 4px; }
+    .control-group label { font-weight: 600; color: #333; font-size: 13px; }
+
+    .slider-row { display: flex; align-items: center; gap: 8px; }
+    .slider-row input[type="range"] { width: 180px; }
+    .slider-value {
+      background: #e8f4f8;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      color: #0066cc;
+      min-width: 40px;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    #run-btn {
+      padding: 10px 24px;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #run-btn:hover { background: #0052a3; }
+    #run-btn:disabled { background: #999; cursor: not-allowed; }
+
+    #status {
+      font-size: 13px;
+      color: #666;
+      min-height: 20px;
+      align-self: center;
+    }
+
+    /* Side-by-side panels */
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    .panel-title .params {
+      font-weight: 400;
+      color: #888;
+      font-size: 12px;
+    }
+
+    .min-scores {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 6px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    .min-scores .min-item {
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #f8f9fa;
+    }
+
+    .panel-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 450px;
+      color: #aaa;
+      font-size: 15px;
+      border: 2px dashed #ddd;
+      border-radius: 8px;
+    }
+
+    svg { display: block; margin: 0 auto; }
+
+    /* Comparison table */
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .comparison-table th {
+      text-align: left;
+      padding: 10px 12px;
+      background: #f8f9fa;
+      border-bottom: 2px solid #e0e0e0;
+      font-weight: 600;
+      color: #333;
+    }
+    .comparison-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #eee;
+      font-family: monospace;
+      font-size: 14px;
+    }
+    .comparison-table td:first-child {
+      font-family: inherit;
+      font-weight: 500;
+    }
+    .delta-positive { color: #38a169; font-weight: 600; }
+    .delta-negative { color: #e53e3e; font-weight: 600; }
+    .delta-neutral { color: #999; }
+    .score-na { color: #ccc; font-style: italic; }
+
+    .quality-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: inherit;
+      font-weight: 600;
+      margin-left: 6px;
+    }
+    .quality-excellent { background: #c6f6d5; color: #276749; }
+    .quality-good { background: #fefcbf; color: #744210; }
+    .quality-fair { background: #feebc8; color: #7b341e; }
+    .quality-poor { background: #fed7d7; color: #9b2c2c; }
+
+    /* Tooltip */
+    #tooltip {
+      position: absolute;
+      background: rgba(0,0,0,0.85);
+      color: white;
+      padding: 10px;
+      border-radius: 6px;
+      pointer-events: none;
+      visibility: hidden;
+      font-size: 12px;
+      z-index: 1000;
+      max-width: 240px;
+      line-height: 1.5;
+    }
+
+    .cluster-label { user-select: none; -webkit-user-select: none; }
+
+    /* Color controls */
+    .color-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+    }
+    .color-controls label { font-weight: 600; font-size: 13px; color: #333; }
+    .color-controls select {
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ZADU Interactive Parameter Tuning</h1>
+
+  <!-- Recommendations -->
+  <div class="card">
+    <h2>Recommendations</h2>
+    <div id="recommendations"><span style="color:#aaa">Loading...</span></div>
+  </div>
+
+  <!-- Parameter Controls -->
+  <div class="card">
+    <h2>UMAP Parameters</h2>
+    <div id="controls">
+      <div class="control-group">
+        <label for="n-neighbors">n_neighbors</label>
+        <div class="slider-row">
+          <input type="range" id="n-neighbors" min="5" max="50" step="1" value="15">
+          <span class="slider-value" id="n-neighbors-val">15</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label for="min-dist">min_dist</label>
+        <div class="slider-row">
+          <input type="range" id="min-dist" min="0.01" max="0.50" step="0.01" value="0.10">
+          <span class="slider-value" id="min-dist-val">0.10</span>
+        </div>
+      </div>
+      <button id="run-btn">Re-run UMAP</button>
+      <span id="status"></span>
+    </div>
+    <div class="color-controls">
+      <label for="color-mode">Color by:</label>
+      <select id="color-mode">
+        <option value="cluster">Cluster (digit)</option>
+        <option value="metric" selected>Metric score</option>
+      </select>
+      <label for="metric-select">Metric:</label>
+      <select id="metric-select">
+        <option value="trustworthiness">Trustworthiness</option>
+        <option value="continuity">Continuity</option>
+        <option value="steadiness">Steadiness</option>
+        <option value="cohesiveness">Cohesiveness</option>
+      </select>
+      <label for="color-scheme">Scheme:</label>
+      <select id="color-scheme">
+        <option value="grayscale" selected>Grayscale</option>
+        <option value="redYellowGreen">Red-Yellow-Green</option>
+        <option value="viridis">Viridis</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Side-by-side embeddings -->
+  <div class="panels">
+    <div class="card">
+      <div class="panel-title">Baseline Embedding <span class="params">(n_neighbors=15, min_dist=0.10)</span></div>
+      <div id="chart-baseline"></div>
+    </div>
+    <div class="card">
+      <div class="panel-title" id="new-panel-title">New Embedding <span class="params">(adjust parameters and click Re-run)</span></div>
+      <div id="chart-new">
+        <div class="panel-placeholder">Adjust parameters above and click "Re-run UMAP"</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Metrics Comparison -->
+  <div class="card">
+    <h2>Metrics Comparison</h2>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Baseline</th>
+          <th>New</th>
+          <th>Change</th>
+          <th>Min (Baseline)</th>
+          <th>Min (New)</th>
+          <th>Min Change</th>
+        </tr>
+      </thead>
+      <tbody id="comparison-body">
+        <tr><td colspan="7" style="color:#aaa; text-align:center;">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Metric Descriptions -->
+  <div class="card">
+    <h2>Metric Interpretation Guide</h2>
+    <table class="comparison-table" style="font-family: inherit;">
+      <thead>
+        <tr>
+          <th style="width:140px;">Metric</th>
+          <th>What it measures</th>
+          <th style="width:220px;">Low score means</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Trustworthiness</strong></td>
+          <td>Are nearby points in the embedding actually nearby in the original space? Detects <em>false neighbors</em> &mdash; points that appear close in 2D but were far apart in high-D.</td>
+          <td>The embedding introduces misleading proximity between unrelated points.</td>
+        </tr>
+        <tr>
+          <td><strong>Continuity</strong></td>
+          <td>Are nearby points in the original space still nearby in the embedding? Detects <em>missing neighbors</em> &mdash; points that were close in high-D but got separated in 2D.</td>
+          <td>The embedding tears apart local neighborhoods that existed in the original data.</td>
+        </tr>
+        <tr>
+          <td><strong>Steadiness</strong></td>
+          <td>Do clusters visible in the embedding correspond to real groups in the original space? Detects <em>false clusters</em> created by the projection.</td>
+          <td>The embedding shows groups that don't actually exist &mdash; artifacts of the projection.</td>
+        </tr>
+        <tr>
+          <td><strong>Cohesiveness</strong></td>
+          <td>Do real clusters from the original space remain intact in the embedding? Detects <em>split clusters</em> torn apart by the projection.</td>
+          <td>Real groups in the data are fragmented or scattered across the embedding.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top:12px; font-size:13px; color:#666; line-height:1.6;">
+      <strong>Key trade-off:</strong> Trustworthiness and Continuity often conflict &mdash; improving one can degrade the other.
+      Similarly, Steadiness and Cohesiveness represent opposing views of cluster reliability.
+      The goal is to find a parameter balance where all metrics are acceptable, not to maximize any single one.
+      <br><strong>Score interpretation:</strong>
+      <span class="quality-badge quality-excellent">excellent</span> &ge; 0.90 &nbsp;
+      <span class="quality-badge quality-good">good</span> &ge; 0.85 &nbsp;
+      <span class="quality-badge quality-fair">fair</span> &ge; 0.80 &nbsp;
+      <span class="quality-badge quality-poor">poor</span> &lt; 0.80
+    </div>
+  </div>
+
+  <div id="tooltip"></div>
+
+  <!-- Load pre-computed MNIST data -->
+  <script src="mnist-200-data.js"></script>
+  <script>
+    // =========================================================================
+    // Inlined core utilities (from src/core/)
+    // =========================================================================
+    function euclideanDistance(a, b) {
+      return Math.sqrt(a.reduce((sum, v, i) => sum + Math.pow(v - b[i], 2), 0));
+    }
+
+    function calculateDistanceMatrix(data) {
+      const n = data.length;
+      const m = Array(n).fill(null).map(() => Array(n).fill(0));
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const d = euclideanDistance(data[i], data[j]);
+          m[i][j] = d;
+          m[j][i] = d;
+        }
+      }
+      return m;
+    }
+
+    function getKNearestNeighbors(distMatrix, k) {
+      const n = distMatrix.length;
+      const neighbors = [];
+      for (let i = 0; i < n; i++) {
+        const dists = distMatrix[i]
+          .map((d, idx) => ({ idx, d }))
+          .filter(x => x.idx !== i);
+        dists.sort((a, b) => a.d - b.d);
+        neighbors.push(dists.slice(0, k).map(x => x.idx));
+      }
+      return neighbors;
+    }
+
+    function getRankings(distances, selfIdx) {
+      const pairs = distances
+        .map((d, idx) => ({ idx, d }))
+        .filter(x => x.idx !== selfIdx);
+      pairs.sort((a, b) => a.d - b.d);
+      const rankings = Array(distances.length).fill(-1);
+      pairs.forEach((item, rank) => { rankings[item.idx] = rank; });
+      return rankings;
+    }
+
+    // =========================================================================
+    // Inlined metrics (from src/metrics/local/)
+    // =========================================================================
+    function computeTrustworthiness(highDistMatrix, lowDim, k) {
+      const n = highDistMatrix.length;
+      const lowDistMatrix = calculateDistanceMatrix(lowDim);
+      const lowNeighbors = getKNearestNeighbors(lowDistMatrix, k);
+      const highRankings = highDistMatrix.map((d, i) => getRankings(d, i));
+
+      let totalError = 0;
+      const localErrors = [];
+      for (let i = 0; i < n; i++) {
+        let pointError = 0;
+        for (const j of lowNeighbors[i]) {
+          const rank = highRankings[i][j];
+          if (rank >= k) pointError += rank - k;
+        }
+        localErrors.push(pointError);
+        totalError += pointError;
+      }
+
+      const norm = 2 / (n * k * (2 * n - 3 * k - 1));
+      return {
+        score: 1 - norm * totalError,
+        localScores: localErrors.map(e => 1 - (2 * e / (k * (2 * n - 3 * k - 1))))
+      };
+    }
+
+    function computeContinuity(highDistMatrix, lowDim, k) {
+      const n = highDistMatrix.length;
+      const highNeighbors = getKNearestNeighbors(highDistMatrix, k);
+      const lowDistMatrix = calculateDistanceMatrix(lowDim);
+      const lowRankings = lowDistMatrix.map((d, i) => getRankings(d, i));
+
+      let totalError = 0;
+      const localErrors = [];
+      for (let i = 0; i < n; i++) {
+        let pointError = 0;
+        for (const j of highNeighbors[i]) {
+          const rank = lowRankings[i][j];
+          if (rank >= k) pointError += rank - k;
+        }
+        localErrors.push(pointError);
+        totalError += pointError;
+      }
+
+      const norm = 2 / (n * k * (2 * n - 3 * k - 1));
+      return {
+        score: 1 - norm * totalError,
+        localScores: localErrors.map(e => 1 - (2 * e / (k * (2 * n - 3 * k - 1))))
+      };
+    }
+
+    // =========================================================================
+    // Simplified recommendation engine (from parameterRecommender.js)
+    // =========================================================================
+    function generateRecommendations(metrics, currentN, currentMD) {
+      const thresholds = { excellent: 0.90, good: 0.85, fair: 0.80, poor: 0.70 };
+      const recs = [];
+
+      function qualityLabel(score) {
+        if (score >= thresholds.excellent) return 'excellent';
+        if (score >= thresholds.good) return 'good';
+        if (score >= thresholds.fair) return 'fair';
+        return 'poor';
+      }
+
+      function severity(score) {
+        if (score >= thresholds.good) return 'good';
+        if (score >= thresholds.fair) return 'low';
+        if (score >= thresholds.poor) return 'medium';
+        return 'high';
+      }
+
+      const metricList = [
+        { name: 'Trustworthiness', key: 'trustworthiness', score: metrics.trustworthiness },
+        { name: 'Continuity', key: 'continuity', score: metrics.continuity },
+        { name: 'Steadiness', key: 'steadiness', score: metrics.steadiness },
+        { name: 'Cohesiveness', key: 'cohesiveness', score: metrics.cohesiveness }
+      ];
+
+      for (const m of metricList) {
+        if (m.score === null || m.score === undefined) continue;
+        const sev = severity(m.score);
+        const qual = qualityLabel(m.score);
+        let suggestion = '';
+
+        if (sev === 'good') {
+          suggestion = 'No changes needed.';
+        } else if (m.key === 'continuity') {
+          const newN = Math.max(5, currentN - 5);
+          const newMD = Math.min(0.5, currentMD + 0.02);
+          suggestion = `Try decreasing n_neighbors to ${newN} and increasing min_dist to ${newMD.toFixed(2)} to better preserve local relationships.`;
+        } else {
+          // T, S, Co all benefit from same direction
+          const newN = Math.min(50, currentN + 5);
+          const newMD = Math.max(0.01, currentMD - 0.02);
+          suggestion = `Try increasing n_neighbors to ${newN} and decreasing min_dist to ${newMD.toFixed(2)} to improve ${m.key === 'trustworthiness' ? 'global structure' : 'cluster integrity'}.`;
+        }
+
+        recs.push({
+          name: m.name,
+          score: m.score,
+          quality: qual,
+          severity: sev,
+          suggestion
+        });
+      }
+
+      // Sort: worst first
+      const sevOrder = { high: 0, medium: 1, low: 2, good: 3 };
+      recs.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]);
+      return recs;
+    }
+
+    // =========================================================================
+    // Global state
+    // =========================================================================
+    let highDimData = [];
+    let highDimDistMatrix = [];
+    let highDimNeighbors = [];
+    let baselineEmbedding = [];
+    let baselineLabels = [];
+    let baselineMetrics = {};
+    let baselineLocalScores = {};
+    let newEmbedding = null;
+    let newMetrics = null;
+    let newLocalScores = {};
+    const metricK = 7;
+    let selectedPoint = null;
+    const panelCircles = {};
+
+    // Color state
+    let colorMode = 'metric';     // 'cluster' or 'metric'
+    let selectedMetric = 'trustworthiness';
+    let colorSchemeName = 'grayscale';
+
+    const clusterColors = d3.schemeCategory10;
+    const tooltip = d3.select('#tooltip');
+
+    const colorSchemes = {
+      grayscale: score => {
+        const v = Math.round(255 * Math.max(0, Math.min(1, score)));
+        return `rgb(${v}, ${v}, ${v})`;
+      },
+      redYellowGreen: score => {
+        const c = Math.max(0, Math.min(1, score));
+        if (c < 0.5) {
+          const t = c * 2;
+          return `rgb(255, ${Math.round(255 * t)}, 0)`;
+        } else {
+          const t = (c - 0.5) * 2;
+          return `rgb(${Math.round(255 * (1 - t))}, 255, 0)`;
+        }
+      },
+      viridis: score => {
+        const c = Math.max(0, Math.min(1, score));
+        return `rgb(${Math.round(255 * (0.27 + c * 0.5))}, ${Math.round(255 * (0.0 + c * 0.9))}, ${Math.round(255 * (0.33 + c * 0.4))})`;
+      }
+    };
+
+    // =========================================================================
+    // Data loading
+    // =========================================================================
+    function loadData() {
+      if (typeof MNIST_DATA === 'undefined') {
+        document.getElementById('status').textContent = 'Error: mnist-200-data.js not found';
+        return false;
+      }
+      highDimData = MNIST_DATA.highDimData;
+      baselineEmbedding = MNIST_DATA.embedding;
+      baselineLabels = MNIST_DATA.labels;
+      // Pre-compute high-dim distance matrix (reused for all metric computations)
+      document.getElementById('status').textContent = 'Computing distance matrix...';
+      highDimDistMatrix = calculateDistanceMatrix(highDimData);
+      highDimNeighbors = getKNearestNeighbors(highDimDistMatrix, metricK);
+
+      // Recompute baseline T&C in the browser so comparisons use the same code path
+      // (avoids floating-point differences between Node.js and browser environments)
+      document.getElementById('status').textContent = 'Computing baseline metrics...';
+      const baseTResult = computeTrustworthiness(highDimDistMatrix, baselineEmbedding, metricK);
+      const baseCResult = computeContinuity(highDimDistMatrix, baselineEmbedding, metricK);
+
+      baselineMetrics = {
+        trustworthiness: baseTResult.score,
+        continuity: baseCResult.score,
+        // S&C from pre-computed data (can't compute in browser)
+        steadiness: MNIST_DATA.metrics.steadiness.global,
+        cohesiveness: MNIST_DATA.metrics.cohesiveness.global
+      };
+      baselineLocalScores = {
+        trustworthiness: baseTResult.localScores,
+        continuity: baseCResult.localScores,
+        steadiness: MNIST_DATA.metrics.steadiness.local,
+        cohesiveness: MNIST_DATA.metrics.cohesiveness.local
+      };
+
+      document.getElementById('status').textContent = '';
+      return true;
+    }
+
+    // =========================================================================
+    // Neighbor highlight helpers
+    // =========================================================================
+    function applyHighlight(circles, pointIndex, neighbors) {
+      circles
+        .attr('opacity', p => (p.index === pointIndex || neighbors.has(p.index)) ? 1 : 0.1)
+        .attr('r', p => p.index === pointIndex ? 8 : neighbors.has(p.index) ? 6 : 4)
+        .attr('stroke', p => p.index === pointIndex ? '#ff4444' : neighbors.has(p.index) ? '#4444ff' : '#fff')
+        .attr('stroke-width', p => p.index === pointIndex ? 3 : neighbors.has(p.index) ? 2 : 0.5);
+    }
+
+    function clearHighlight(circles) {
+      circles.attr('opacity', 1).attr('r', 4).attr('stroke', '#fff').attr('stroke-width', 0.5);
+    }
+
+    function syncHighlight(pointIndex) {
+      selectedPoint = pointIndex;
+      const neighbors = pointIndex !== null ? new Set(highDimNeighbors[pointIndex]) : null;
+      for (const id of Object.keys(panelCircles)) {
+        if (pointIndex !== null) {
+          applyHighlight(panelCircles[id], pointIndex, neighbors);
+        } else {
+          clearHighlight(panelCircles[id]);
+        }
+      }
+    }
+
+    // =========================================================================
+    // Scatter plot rendering
+    // =========================================================================
+    function getPointColor(index, cluster, localScores) {
+      if (colorMode === 'cluster') {
+        return clusterColors[cluster % clusterColors.length];
+      }
+      const scores = localScores[selectedMetric];
+      if (!scores || scores[index] === undefined) {
+        return '#ccc';
+      }
+      return colorSchemes[colorSchemeName](scores[index]);
+    }
+
+    function buildTooltipHtml(d, localScores) {
+      let html = `<strong>Point ${d.index}</strong><br>Digit: ${d.cluster}`;
+      const metricNames = { trustworthiness: 'T', continuity: 'C', steadiness: 'S', cohesiveness: 'Co' };
+      const available = [];
+      for (const [key, abbr] of Object.entries(metricNames)) {
+        const scores = localScores[key];
+        if (scores && scores[d.index] !== undefined) {
+          const val = scores[d.index];
+          const qual = val >= 0.9 ? '#4ade80' : val >= 0.8 ? '#facc15' : val >= 0.7 ? '#fb923c' : '#f87171';
+          available.push(`<span style="color:${qual}">${abbr}: ${val.toFixed(3)}</span>`);
+        }
+      }
+      if (available.length > 0) {
+        html += `<br>${available.join(' &nbsp; ')}`;
+      }
+      return html;
+    }
+
+    function renderScatter(containerId, embedding, labels, localScores) {
+      const container = d3.select('#' + containerId);
+      container.selectAll('*').remove();
+
+      const width = 500;
+      const height = 450;
+      const margin = { top: 10, right: 10, bottom: 30, left: 30 };
+      const pw = width - margin.left - margin.right;
+      const ph = height - margin.top - margin.bottom;
+
+      const xExt = d3.extent(embedding, d => d[0]);
+      const yExt = d3.extent(embedding, d => d[1]);
+      const xPad = (xExt[1] - xExt[0]) * 0.1;
+      const yPad = (yExt[1] - yExt[0]) * 0.1;
+
+      const xScale = d3.scaleLinear()
+        .domain([xExt[0] - xPad, xExt[1] + xPad]).range([0, pw]);
+      const yScale = d3.scaleLinear()
+        .domain([yExt[0] - yPad, yExt[1] + yPad]).range([ph, 0]);
+
+      const svg = container.append('svg').attr('width', width).attr('height', height);
+      const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const zoom = d3.zoom().scaleExtent([0.5, 10])
+        .on('zoom', e => g.attr('transform', `translate(${margin.left},${margin.top}) ${e.transform}`));
+      svg.call(zoom);
+
+      const points = embedding.map((coords, i) => ({
+        index: i, coords, cluster: labels[i],
+        color: getPointColor(i, labels[i], localScores)
+      }));
+
+      const circles = g.selectAll('circle')
+        .data(points)
+        .join('circle')
+        .attr('cx', d => xScale(d.coords[0]))
+        .attr('cy', d => yScale(d.coords[1]))
+        .attr('r', 4)
+        .attr('fill', d => d.color)
+        .attr('stroke', colorMode === 'metric' ? '#666' : '#fff')
+        .attr('stroke-width', 0.5)
+        .style('cursor', 'pointer')
+        .on('mouseover', (event, d) => {
+          d3.select(event.target).attr('r', 7).attr('stroke-width', 2);
+          tooltip.style('visibility', 'visible')
+            .style('left', (event.pageX + 10) + 'px')
+            .style('top', (event.pageY - 10) + 'px')
+            .html(buildTooltipHtml(d, localScores));
+        })
+        .on('mouseout', (event, d) => {
+          if (selectedPoint === null) {
+            d3.select(event.target).attr('r', 4).attr('stroke-width', 0.5);
+          } else {
+            const neighbors = new Set(highDimNeighbors[selectedPoint]);
+            const isSelected = d.index === selectedPoint;
+            const isNeighbor = neighbors.has(d.index);
+            d3.select(event.target)
+              .attr('r', isSelected ? 8 : isNeighbor ? 6 : 4)
+              .attr('stroke-width', isSelected ? 3 : isNeighbor ? 2 : 0.5);
+          }
+          tooltip.style('visibility', 'hidden');
+        })
+        .on('click', (event, d) => {
+          event.stopPropagation();
+          syncHighlight(d.index);
+        });
+
+      // Click SVG background to deselect
+      svg.on('click', () => { syncHighlight(null); });
+
+      // Register circles for this panel
+      panelCircles[containerId] = circles;
+
+      // If a point is already selected, apply highlighting to this new panel
+      if (selectedPoint !== null) {
+        applyHighlight(circles, selectedPoint, new Set(highDimNeighbors[selectedPoint]));
+      }
+
+      // Cluster labels
+      const clusters = {};
+      labels.forEach((label, i) => {
+        if (!clusters[label]) clusters[label] = { sx: 0, sy: 0, n: 0 };
+        clusters[label].sx += embedding[i][0];
+        clusters[label].sy += embedding[i][1];
+        clusters[label].n++;
+      });
+
+      Object.entries(clusters).forEach(([label, c]) => {
+        g.append('text')
+          .attr('class', 'cluster-label')
+          .attr('x', xScale(c.sx / c.n))
+          .attr('y', yScale(c.sy / c.n))
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'middle')
+          .attr('font-size', '12px')
+          .attr('font-weight', 'bold')
+          .attr('fill', '#000')
+          .attr('stroke', '#fff')
+          .attr('stroke-width', 2.5)
+          .attr('paint-order', 'stroke')
+          .text(label);
+      });
+
+      // Min scores label below the plot
+      const metricNames = { trustworthiness: 'T', continuity: 'C', steadiness: 'S', cohesiveness: 'Co' };
+      const minItems = [];
+      for (const [key, abbr] of Object.entries(metricNames)) {
+        const scores = localScores[key];
+        if (scores && scores.length > 0) {
+          const minVal = Math.min(...scores);
+          const color = minVal >= 0.9 ? '#276749' : minVal >= 0.8 ? '#744210' : minVal >= 0.7 ? '#7b341e' : '#9b2c2c';
+          const bg = minVal >= 0.9 ? '#c6f6d5' : minVal >= 0.8 ? '#fefcbf' : minVal >= 0.7 ? '#feebc8' : '#fed7d7';
+          minItems.push(`<span class="min-item" style="color:${color};background:${bg}">Min ${abbr}: ${minVal.toFixed(3)}</span>`);
+        }
+      }
+      if (minItems.length > 0) {
+        container.append('div').attr('class', 'min-scores').html(minItems.join(''));
+      }
+    }
+
+    // =========================================================================
+    // Recommendations panel
+    // =========================================================================
+    function renderRecommendations(metrics, currentN, currentMD) {
+      const recs = generateRecommendations(metrics, currentN, currentMD);
+      const container = document.getElementById('recommendations');
+
+      container.innerHTML = recs.map(r => `
+        <div class="rec-item ${r.severity}">
+          <span class="rec-metric">${r.name}</span>:
+          <span class="rec-score">${r.score.toFixed(4)}</span>
+          <span class="quality-badge quality-${r.quality}">${r.quality}</span>
+          <div class="rec-suggestion">${r.suggestion}</div>
+        </div>
+      `).join('');
+    }
+
+    // =========================================================================
+    // Comparison table
+    // =========================================================================
+    function qualityBadge(score) {
+      if (score === null) return '';
+      const q = score >= 0.90 ? 'excellent' : score >= 0.85 ? 'good' : score >= 0.80 ? 'fair' : 'poor';
+      return `<span class="quality-badge quality-${q}">${q}</span>`;
+    }
+
+    function getMinScore(localScores, key) {
+      const scores = localScores[key];
+      if (!scores || scores.length === 0) return null;
+      return Math.min(...scores);
+    }
+
+    function renderComparison() {
+      const keys = ['trustworthiness', 'continuity', 'steadiness', 'cohesiveness'];
+      const names = ['Trustworthiness', 'Continuity', 'Steadiness', 'Cohesiveness'];
+
+      const rows = keys.map((key, i) => ({
+        name: names[i],
+        base: baselineMetrics[key],
+        newVal: newMetrics?.[key] ?? null,
+        baseMin: getMinScore(baselineLocalScores, key),
+        newMin: getMinScore(newLocalScores, key)
+      }));
+
+      const tbody = document.getElementById('comparison-body');
+      tbody.innerHTML = rows.map(r => {
+        const baseStr = r.base.toFixed(4) + qualityBadge(r.base);
+
+        let newStr, deltaStr;
+        if (r.newVal === null) {
+          newStr = '<span class="score-na">--</span>';
+          deltaStr = '<span class="score-na">--</span>';
+        } else {
+          const delta = r.newVal - r.base;
+          const cls = Math.abs(delta) < 0.005 ? 'delta-neutral' : delta > 0 ? 'delta-positive' : 'delta-negative';
+          const sign = delta >= 0 ? '+' : '';
+          newStr = r.newVal.toFixed(4) + qualityBadge(r.newVal);
+          deltaStr = `<span class="${cls}">${sign}${delta.toFixed(4)}</span>`;
+        }
+
+        // Min score columns
+        const baseMinStr = r.baseMin !== null ? r.baseMin.toFixed(4) + qualityBadge(r.baseMin) : '<span class="score-na">--</span>';
+        let newMinStr, minDeltaStr;
+        if (r.newMin === null) {
+          newMinStr = '<span class="score-na">--</span>';
+          minDeltaStr = '<span class="score-na">--</span>';
+        } else {
+          const minDelta = r.newMin - r.baseMin;
+          const minCls = Math.abs(minDelta) < 0.005 ? 'delta-neutral' : minDelta > 0 ? 'delta-positive' : 'delta-negative';
+          const minSign = minDelta >= 0 ? '+' : '';
+          newMinStr = r.newMin.toFixed(4) + qualityBadge(r.newMin);
+          minDeltaStr = `<span class="${minCls}">${minSign}${minDelta.toFixed(4)}</span>`;
+        }
+
+        return `<tr><td>${r.name}</td><td>${baseStr}</td><td>${newStr}</td><td>${deltaStr}</td><td>${baseMinStr}</td><td>${newMinStr}</td><td>${minDeltaStr}</td></tr>`;
+      }).join('');
+    }
+
+    // =========================================================================
+    // UMAP re-run
+    // =========================================================================
+    async function runUMAP() {
+      const btn = document.getElementById('run-btn');
+      const status = document.getElementById('status');
+      const nNeighbors = parseInt(document.getElementById('n-neighbors').value);
+      const minDist = parseFloat(document.getElementById('min-dist').value);
+
+      btn.disabled = true;
+      status.textContent = 'Running UMAP...';
+
+      // Use setTimeout to allow the UI to update before blocking computation
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      try {
+        // Run DruidJS UMAP
+        const X = druid.Matrix.from(highDimData);
+        const umap = new druid.UMAP(X, {
+          n_neighbors: nNeighbors,
+          min_dist: minDist,
+          d: 2,
+          _n_epochs: 350,
+          seed: 42
+        });
+
+        const embMatrix = umap.transform();
+
+        // Convert Matrix to 2D array
+        const N = embMatrix.shape[0];
+        newEmbedding = [];
+        for (let i = 0; i < N; i++) {
+          newEmbedding.push([embMatrix.entry(i, 0), embMatrix.entry(i, 1)]);
+        }
+
+        status.textContent = 'Computing metrics...';
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        // Compute T & C using pre-computed highDimDistMatrix
+        const tResult = computeTrustworthiness(highDimDistMatrix, newEmbedding, metricK);
+        const cResult = computeContinuity(highDimDistMatrix, newEmbedding, metricK);
+
+        newMetrics = {
+          trustworthiness: tResult.score,
+          continuity: cResult.score,
+          steadiness: null,
+          cohesiveness: null
+        };
+        newLocalScores = {
+          trustworthiness: tResult.localScores,
+          continuity: cResult.localScores
+        };
+
+        // Update title
+        document.getElementById('new-panel-title').innerHTML =
+          `New Embedding <span class="params">(n_neighbors=${nNeighbors}, min_dist=${minDist.toFixed(2)})</span>`;
+
+        // Render new scatter
+        renderScatter('chart-new', newEmbedding, baselineLabels, newLocalScores);
+
+        // Update comparison table
+        renderComparison();
+
+        // Update recommendations with new T & C (keep baseline S & Co for context)
+        const combinedMetrics = {
+          trustworthiness: newMetrics.trustworthiness,
+          continuity: newMetrics.continuity,
+          steadiness: baselineMetrics.steadiness,
+          cohesiveness: baselineMetrics.cohesiveness
+        };
+        renderRecommendations(combinedMetrics, nNeighbors, minDist);
+
+        status.textContent = `Done (T=${tResult.score.toFixed(4)}, C=${cResult.score.toFixed(4)})`;
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // =========================================================================
+    // Controls
+    // =========================================================================
+    document.getElementById('n-neighbors').addEventListener('input', e => {
+      document.getElementById('n-neighbors-val').textContent = e.target.value;
+    });
+
+    document.getElementById('min-dist').addEventListener('input', e => {
+      document.getElementById('min-dist-val').textContent = parseFloat(e.target.value).toFixed(2);
+    });
+
+    document.getElementById('run-btn').addEventListener('click', runUMAP);
+
+    // Color control listeners
+    function redrawBothPanels() {
+      renderScatter('chart-baseline', baselineEmbedding, baselineLabels, baselineLocalScores);
+      if (newEmbedding) {
+        renderScatter('chart-new', newEmbedding, baselineLabels, newLocalScores);
+      }
+    }
+
+    document.getElementById('color-mode').addEventListener('change', e => {
+      colorMode = e.target.value;
+      document.getElementById('metric-select').disabled = colorMode === 'cluster';
+      document.getElementById('color-scheme').disabled = colorMode === 'cluster';
+      redrawBothPanels();
+    });
+
+    document.getElementById('metric-select').addEventListener('change', e => {
+      selectedMetric = e.target.value;
+      redrawBothPanels();
+    });
+
+    document.getElementById('color-scheme').addEventListener('change', e => {
+      colorSchemeName = e.target.value;
+      redrawBothPanels();
+    });
+
+    // =========================================================================
+    // Initialize
+    // =========================================================================
+    function initialize() {
+      if (!loadData()) return;
+
+      // Render baseline
+      renderScatter('chart-baseline', baselineEmbedding, baselineLabels, baselineLocalScores);
+
+      // Render recommendations from baseline metrics
+      renderRecommendations(baselineMetrics, 15, 0.1);
+
+      // Render initial comparison table (new column empty)
+      renderComparison();
+    }
+
+    initialize();
+  </script>
+</body>
+</html>

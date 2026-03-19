@@ -40,3 +40,6 @@ venv/
 
 # Examples (since you mentioned not pushing them)
 examples/.venv/
+
+# Local reports (not for version control)
+reports/
