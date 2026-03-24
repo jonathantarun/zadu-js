@@ -299,8 +299,10 @@
       <label for="color-scheme">Scheme:</label>
       <select id="color-scheme">
         <option value="grayscale" selected>Grayscale</option>
-        <option value="redYellowGreen">Red-Yellow-Green</option>
         <option value="viridis">Viridis</option>
+        <option value="spectral">Spectral</option>
+        <option value="turbo">Turbo</option>
+        <option value="blueRed">Blue-Red</option>
       </select>
     </div>
   </div>
@@ -581,7 +583,7 @@
       digitDataURLs = highDimData.map(pixels => {
         const img = ctx.createImageData(28, 28);
         for (let px = 0; px < 784; px++) {
-          const v = Math.round(pixels[px] * 255);
+          const v = Math.round((1 - pixels[px]) * 255);  // inverted: black digit on white bg
           img.data[px * 4]     = v;
           img.data[px * 4 + 1] = v;
           img.data[px * 4 + 2] = v;
@@ -601,24 +603,11 @@
     const tooltip = d3.select('#tooltip');
 
     const colorSchemes = {
-      grayscale: score => {
-        const v = Math.round(255 * Math.max(0, Math.min(1, score)));
-        return `rgb(${v}, ${v}, ${v})`;
-      },
-      redYellowGreen: score => {
-        const c = Math.max(0, Math.min(1, score));
-        if (c < 0.5) {
-          const t = c * 2;
-          return `rgb(255, ${Math.round(255 * t)}, 0)`;
-        } else {
-          const t = (c - 0.5) * 2;
-          return `rgb(${Math.round(255 * (1 - t))}, 255, 0)`;
-        }
-      },
-      viridis: score => {
-        const c = Math.max(0, Math.min(1, score));
-        return `rgb(${Math.round(255 * (0.27 + c * 0.5))}, ${Math.round(255 * (0.0 + c * 0.9))}, ${Math.round(255 * (0.33 + c * 0.4))})`;
-      }
+      grayscale: t => d3.interpolateGreys(Math.max(0, Math.min(1, t))),
+      viridis:   t => d3.interpolateViridis(Math.max(0, Math.min(1, t))),
+      spectral:  t => d3.interpolateSpectral(Math.max(0, Math.min(1, t))),
+      turbo:     t => d3.interpolateTurbo(Math.max(0, Math.min(1, t))),
+      blueRed:   t => d3.interpolateRdBu(1 - Math.max(0, Math.min(1, t))),
     };
 
     // =========================================================================
@@ -693,16 +682,26 @@
         html += '</span>';
         el.innerHTML = html;
       } else {
-        // Gradient bar with tick marks at every 0.1
-        const N = 110;           // slices for smooth gradient
-        const TICKS = 11;        // 0.0, 0.1, ..., 1.0
-        const barW = 330;        // 33px per 0.1 interval
+        // Gradient bar + size encoding row
+        const N = 110;
+        const TICKS = 11;          // 0.0, 0.1, ..., 1.0
+        const leftPad = 46;        // room for "Color:" / "Size:" row labels
+        const rightPad = 12;       // room for last tick label + last size square
+        const barW = 320;
+        const svgW = leftPad + barW + rightPad;
         const barH = 14;
         const tickH = 5;
-        const labelY = barH + tickH + 11;
-        const svgH = labelY + 2;
+        const tickLabelY = barH + tickH + 11;  // y of 0.0..1.0 labels
+
+        // Size sample row layout
+        const sizeStops = [0, 0.25, 0.5, 0.75, 1.0];
+        const maxBoxSize = 20;
+        const sizeRowTopY = tickLabelY + 12;     // top of the tallest box area
+        const sizeRowH = maxBoxSize + 25;         // box + px label + score label
+        const svgH = sizeRowTopY + sizeRowH;
         const sliceW = barW / N;
 
+        // Color gradient bar slices
         let rects = '';
         for (let i = 0; i < N; i++) {
           const score = i / (N - 1);
@@ -710,22 +709,46 @@
           rects += `<rect x="${(i * sliceW).toFixed(1)}" y="0" width="${(sliceW + 0.5).toFixed(1)}" height="${barH}" fill="${col}"/>`;
         }
 
+        // Tick marks + labels
         let ticks = '';
         for (let t = 0; t < TICKS; t++) {
           const x = (t / (TICKS - 1)) * barW;
           const label = (t / (TICKS - 1)).toFixed(1);
           ticks += `<line x1="${x}" y1="${barH}" x2="${x}" y2="${barH + tickH}" stroke="#888" stroke-width="1"/>`;
-          ticks += `<text x="${x}" y="${labelY}" text-anchor="middle" font-size="9" fill="#666" font-family="sans-serif">${label}</text>`;
+          ticks += `<text x="${x}" y="${tickLabelY}" text-anchor="middle" font-size="9" fill="#666" font-family="sans-serif">${label}</text>`;
         }
+
+        // Size squares at 5 sample stops, all at positive x
+        let sizeBoxes = '';
+        sizeStops.forEach(t => {
+          const cx = t * barW;
+          const sz = Math.round(10 + t * 10);  // matches getPointSize (big=good)
+          const col = '#666';
+          const bx = cx - sz / 2;
+          // Clamp leftmost box so it never has negative x
+          const bxClamped = Math.max(0, bx);
+          const by = sizeRowTopY + (maxBoxSize - sz) / 2;
+          sizeBoxes += `<rect x="${bxClamped.toFixed(1)}" y="${by.toFixed(1)}" width="${sz}" height="${sz}" fill="${col}" stroke="rgba(0,0,0,0.25)" stroke-width="0.8" rx="1"/>`;
+          sizeBoxes += `<text x="${cx.toFixed(1)}" y="${(sizeRowTopY + maxBoxSize + 11).toFixed(1)}" text-anchor="middle" font-size="9" fill="#666" font-family="sans-serif">${sz}px</text>`;
+          sizeBoxes += `<text x="${cx.toFixed(1)}" y="${(sizeRowTopY + maxBoxSize + 21).toFixed(1)}" text-anchor="middle" font-size="9" fill="#999" font-family="sans-serif">${t.toFixed(2)}</text>`;
+        });
 
         const metricLabel = metricDisplayNames[selectedMetric] || selectedMetric;
         el.innerHTML = `
           <span class="legend-label">${metricLabel}</span>
-          <svg width="${barW}" height="${svgH}" style="display:block">
-            <rect x="0" y="0" width="${barW}" height="${barH}" rx="2" fill="#eee"/>
-            ${rects}
-            <rect x="0" y="0" width="${barW}" height="${barH}" rx="2" fill="none" stroke="#bbb" stroke-width="1"/>
-            ${ticks}
+          <svg width="${svgW}" height="${svgH}" style="display:block">
+            <g transform="translate(${leftPad},0)">
+              <!-- Row label: Color -->
+              <text x="-6" y="${barH / 2 + 4}" text-anchor="end" font-size="10" fill="#555" font-family="sans-serif">Color</text>
+              <!-- Gradient bar -->
+              <rect x="0" y="0" width="${barW}" height="${barH}" rx="2" fill="#eee"/>
+              ${rects}
+              <rect x="0" y="0" width="${barW}" height="${barH}" rx="2" fill="none" stroke="#bbb" stroke-width="1"/>
+              ${ticks}
+              <!-- Row label: Size -->
+              <text x="-6" y="${(sizeRowTopY + maxBoxSize / 2 + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="#555" font-family="sans-serif">Size</text>
+              ${sizeBoxes}
+            </g>
           </svg>
         `;
       }
@@ -745,8 +768,19 @@
       return colorSchemes[colorSchemeName](scores[index]);
     }
 
+    function getPointSize(index, localScores) {
+      if (colorMode !== 'metric') return 14;
+      const scores = localScores[selectedMetric];
+      if (!scores || scores[index] === undefined) return 14;
+      const s = Math.max(0, Math.min(1, scores[index]));
+      return Math.round(10 + s * 10);  // 10px (bad) → 20px (good)
+    }
+
     function buildTooltipHtml(d, localScores) {
       let html = `<strong>Point ${d.index}</strong><br>Digit: ${d.cluster}`;
+      if (colorMode === 'metric') {
+        html += `<br>Size: ${d.size}px (${selectedMetric.slice(0,1).toUpperCase() + selectedMetric.slice(1)})`;
+      }
       const metricNames = { trustworthiness: 'T', continuity: 'C', steadiness: 'S', cohesiveness: 'Co' };
       const available = [];
       for (const [key, abbr] of Object.entries(metricNames)) {
@@ -792,30 +826,33 @@
 
       const points = embedding.map((coords, i) => ({
         index: i, coords, cluster: labels[i],
-        color: getPointColor(i, labels[i], localScores)
+        color: getPointColor(i, labels[i], localScores),
+        size: getPointSize(i, localScores),
+        origSvgX: xScale(coords[0]),
+        origSvgY: yScale(coords[1]),
+        svgX: xScale(coords[0]),
+        svgY: yScale(coords[1]),
       }));
-
-      const IMG = 14;  // SVG px per digit thumbnail
 
       const groups = g.selectAll('g.pt')
         .data(points)
         .join('g')
         .attr('class', 'pt')
         .attr('transform', d =>
-          `translate(${xScale(d.coords[0]) - IMG / 2},${yScale(d.coords[1]) - IMG / 2})`)
+          `translate(${d.svgX - d.size / 2},${d.svgY - d.size / 2})`)
         .style('cursor', 'pointer');
 
       // Digit image
       groups.append('image')
-        .attr('width', IMG)
-        .attr('height', IMG)
+        .attr('width', d => d.size)
+        .attr('height', d => d.size)
         .attr('href', d => digitDataURLs[d.index])
         .attr('preserveAspectRatio', 'none');
 
       // Colored quality fill + border
       groups.append('rect')
-        .attr('width', IMG)
-        .attr('height', IMG)
+        .attr('width', d => d.size)
+        .attr('height', d => d.size)
         .attr('fill', d => d.color)
         .attr('fill-opacity', 0.35)
         .attr('stroke', d => d.color)
@@ -829,6 +866,7 @@
             .style('left', (event.pageX + 10) + 'px')
             .style('top', (event.pageY - 10) + 'px')
             .html(buildTooltipHtml(d, localScores));
+          spreadNeighbors(d, points, groups);
         })
         .on('mouseout', (event, d) => {
           if (selectedPoint === null) {
@@ -844,6 +882,7 @@
               .attr('stroke', isSelected ? '#ff4444' : isNeighbor ? '#4444ff' : d.color);
           }
           tooltip.style('visibility', 'hidden');
+          restorePositions(points, groups);
         })
         .on('click', (event, d) => {
           event.stopPropagation();
@@ -1104,6 +1143,34 @@
     // =========================================================================
     // Initialize
     // =========================================================================
+    function spreadNeighbors(hoveredDatum, allPoints, groupsSel) {
+      const cx = hoveredDatum.origSvgX, cy = hoveredDatum.origSvgY;
+      const nearby = allPoints.filter(p => {
+        const dx = p.origSvgX - cx, dy = p.origSvgY - cy;
+        return Math.sqrt(dx * dx + dy * dy) < 80;
+      });
+      if (nearby.length <= 1) return;
+      const nodes = nearby.map(p => ({ idx: p.index, x: p.origSvgX, y: p.origSvgY, size: p.size }));
+      d3.forceSimulation(nodes)
+        .force('collide', d3.forceCollide(d => d.size / 2 + 2))
+        .force('x', d3.forceX(d => d.x).strength(0.15))
+        .force('y', d3.forceY(d => d.y).strength(0.15))
+        .stop()
+        .tick(200);
+      const posMap = new Map(nodes.map(n => [n.idx, n]));
+      nearby.forEach(p => { const n = posMap.get(p.index); p.svgX = n.x; p.svgY = n.y; });
+      const affected = new Set(nearby.map(p => p.index));
+      groupsSel.filter(d => affected.has(d.index))
+        .transition().duration(180)
+        .attr('transform', d => `translate(${d.svgX - d.size / 2},${d.svgY - d.size / 2})`);
+    }
+
+    function restorePositions(allPoints, groupsSel) {
+      allPoints.forEach(p => { p.svgX = p.origSvgX; p.svgY = p.origSvgY; });
+      groupsSel.transition().duration(150)
+        .attr('transform', d => `translate(${d.origSvgX - d.size / 2},${d.origSvgY - d.size / 2})`);
+    }
+
     async function initialize() {
       if (!loadData()) return;
 
