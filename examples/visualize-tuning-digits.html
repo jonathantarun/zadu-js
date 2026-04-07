@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ZADU Interactive Parameter Tuning (Digits)</title>
+  <style>
+    .demo-link-bar {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #555;
+    }
+    .demo-link-bar a { color: #3182ce; text-decoration: none; }
+    .demo-link-bar a:hover { text-decoration: underline; }
+  </style>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@saehrimnir/druidjs@0.7.3/dist/druid.min.js"></script>
   <style>
@@ -234,6 +243,36 @@
 
     .cluster-label { user-select: none; -webkit-user-select: none; }
 
+    /* Auto-Optimize */
+    #auto-optimize-btn {
+      padding: 10px 24px;
+      background: #38a169;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #auto-optimize-btn:hover { background: #276749; }
+    #auto-optimize-btn:disabled { background: #999; cursor: not-allowed; }
+
+    #optimization-log {
+      display: none;
+      margin-top: 14px;
+      background: #1a1a2e;
+      color: #c8d6e5;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 14px 16px;
+      border-radius: 6px;
+      max-height: 320px;
+      overflow-y: auto;
+      white-space: pre;
+    }
+
     /* Color controls */
     .color-controls {
       display: flex;
@@ -254,6 +293,7 @@
   </style>
 </head>
 <body>
+  <p class="demo-link-bar">Also check out: <a href="https://johnguerra.co/viz/ieeevis2025Papers/" target="_blank">IEEE VIS 2025 Papers Explorer</a></p>
   <h1>ZADU Interactive Parameter Tuning</h1>
 
   <!-- Recommendations -->
@@ -305,6 +345,17 @@
         <option value="blueRed">Blue-Red</option>
       </select>
     </div>
+  </div>
+
+  <!-- Auto-Optimize -->
+  <div class="card">
+    <h2>Auto-Optimize</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:12px;">
+      Automatically adjusts n_neighbors and min_dist over multiple iterations to improve Trustworthiness and Continuity.
+      Starts from the current slider values and applies the same adaptive threshold logic used in the full optimizer.
+    </p>
+    <button id="auto-optimize-btn">Auto-Optimize</button>
+    <div id="optimization-log"></div>
   </div>
 
   <!-- Color legend -->
@@ -1102,6 +1153,192 @@
     }
 
     // =========================================================================
+    // Auto-Optimize
+    // =========================================================================
+
+    // Returns next {n, md} params based on current T/C scores, or null if no change needed.
+    // Mirrors the core logic of parameterRecommender.js for browser use.
+    function getRecommendedParams(t, c, nN, mD) {
+      const tcGap = Math.abs(t - c);
+      if (c < 0.85) {
+        // Continuity low: smaller neighborhood + more spread
+        return { n: Math.max(5, nN - 5), md: Math.min(0.5, parseFloat((mD + 0.02).toFixed(2))) };
+      }
+      if (t < 0.85) {
+        // Trustworthiness low: larger neighborhood + tighter packing
+        return { n: Math.min(50, nN + 5), md: Math.max(0.01, parseFloat((mD - 0.02).toFixed(2))) };
+      }
+      if (tcGap > 0.15) {
+        // Large T-C gap: shift n_neighbors toward balance
+        return t > c
+          ? { n: Math.max(5, nN - 5), md: Math.min(0.5, parseFloat((mD + 0.02).toFixed(2))) }
+          : { n: Math.min(50, nN + 5), md: Math.max(0.01, parseFloat((mD - 0.02).toFixed(2))) };
+      }
+      return null; // both good, no change
+    }
+
+    async function autoOptimize() {
+      const btn = document.getElementById('auto-optimize-btn');
+      const logEl = document.getElementById('optimization-log');
+      const statusEl = document.getElementById('status');
+
+      btn.disabled = true;
+      document.getElementById('run-btn').disabled = true;
+      logEl.textContent = '';
+      logEl.style.display = 'block';
+
+      function log(msg) {
+        logEl.textContent += msg + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function runDruidUMAP(nN, mD) {
+        const X = druid.Matrix.from(highDimData);
+        const umap = new druid.UMAP(X, { n_neighbors: nN, min_dist: mD, d: 2, _n_epochs: 350, seed: 42 });
+        const emb = umap.transform();
+        const result = [];
+        for (let i = 0; i < emb.shape[0]; i++) result.push([emb.entry(i, 0), emb.entry(i, 1)]);
+        return result;
+      }
+
+      function evalMetrics(embedding) {
+        const t = computeTrustworthiness(highDimDistMatrix, embedding, metricK);
+        const c = computeContinuity(highDimDistMatrix, embedding, metricK);
+        return { t: t.score, c: c.score, tLocal: t.localScores, cLocal: c.localScores };
+      }
+
+      const maxIter = 8;
+      let currentN = parseInt(document.getElementById('n-neighbors').value);
+      let currentMD = parseFloat(document.getElementById('min-dist').value);
+
+      // ---- Baseline ----
+      log('Computing baseline metrics for adaptive thresholds...');
+      statusEl.textContent = 'Auto-optimizing...';
+      await new Promise(r => setTimeout(r, 30));
+
+      const baseEmb = runDruidUMAP(currentN, currentMD);
+      const baseMet = evalMetrics(baseEmb);
+      const baseScore = (baseMet.t + baseMet.c) / 2;
+
+      const tTarget = Math.min(0.95, baseMet.t + 0.05);
+      const cTarget = Math.min(0.95, baseMet.c + 0.05);
+
+      log('\n' + '='.repeat(60));
+      log('AUTO-OPTIMIZE  (Trustworthiness & Continuity)');
+      log('='.repeat(60));
+      log(`Starting params : n_neighbors=${currentN}, min_dist=${currentMD.toFixed(2)}`);
+      log(`Baseline        : T=${baseMet.t.toFixed(4)}  C=${baseMet.c.toFixed(4)}`);
+      log(`Targets (+ 5%)  : T≥${tTarget.toFixed(4)}  C≥${cTarget.toFixed(4)}`);
+      log(`Max iterations  : ${maxIter}`);
+      log('='.repeat(60));
+
+      const history = [{ n: currentN, md: currentMD, score: baseScore }];
+      let bestScore = baseScore;
+      let bestEmb = baseEmb;
+      let bestMet = baseMet;
+      let bestN = currentN;
+      let bestMD = currentMD;
+      let currentMet = baseMet;
+
+      for (let iter = 0; iter < maxIter; iter++) {
+        const next = getRecommendedParams(currentMet.t, currentMet.c, currentN, currentMD);
+
+        if (!next) {
+          log('\nBoth metrics are good. Stopping.');
+          break;
+        }
+        if (next.n === currentN && next.md === currentMD) {
+          log('\nNo parameter changes suggested. Stopping.');
+          break;
+        }
+
+        // Oscillation detection
+        const seen = history.some(h => h.n === next.n && h.md === next.md);
+        if (seen) {
+          log('\n⚠️ Parameter oscillation detected. Stopping.');
+          break;
+        }
+
+        currentN = next.n;
+        currentMD = next.md;
+
+        log(`\n--- Iteration ${iter + 1}/${maxIter} ---`);
+        log(`Params      : n_neighbors=${currentN}, min_dist=${currentMD.toFixed(2)}`);
+        log('Running UMAP...');
+        await new Promise(r => setTimeout(r, 30));
+
+        const emb = runDruidUMAP(currentN, currentMD);
+        log('Computing metrics...');
+        await new Promise(r => setTimeout(r, 20));
+
+        const met = evalMetrics(emb);
+        const score = (met.t + met.c) / 2;
+
+        log(`T=${met.t.toFixed(4)} ${met.t >= tTarget ? '✓' : '✗'}   C=${met.c.toFixed(4)} ${met.c >= cTarget ? '✓' : '✗'}`);
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestEmb = emb;
+          bestMet = met;
+          bestN = currentN;
+          bestMD = currentMD;
+          log(`🎉 New best score: ${score.toFixed(4)}`);
+        }
+
+        history.push({ n: currentN, md: currentMD, score });
+        currentMet = met;
+
+        // Plateau detection (< 0.5% improvement for last 2 steps)
+        if (history.length >= 3) {
+          const s = history.slice(-3);
+          if (Math.abs(s[2].score - s[1].score) < 0.005 && Math.abs(s[1].score - s[0].score) < 0.005) {
+            log('\n✓ Plateau detected (no improvement for 2 iterations). Stopping.');
+            break;
+          }
+        }
+
+        if (met.t >= tTarget && met.c >= cTarget) {
+          log('\n✓ Quality targets met! Stopping.');
+          break;
+        }
+      }
+
+      // ---- Final summary ----
+      const improvement = bestScore - baseScore;
+      log('\n' + '='.repeat(60));
+      log('OPTIMIZATION COMPLETE');
+      log('='.repeat(60));
+      log(`Best params : n_neighbors=${bestN}, min_dist=${bestMD.toFixed(2)}`);
+      log(`Best scores : T=${bestMet.t.toFixed(4)}  C=${bestMet.c.toFixed(4)}`);
+      log(`Improvement : ${improvement >= 0 ? '+' : ''}${(improvement * 100).toFixed(2)}%`);
+      log('='.repeat(60));
+
+      // Update right panel with best result
+      newEmbedding = bestEmb;
+      newMetrics = { trustworthiness: bestMet.t, continuity: bestMet.c, steadiness: null, cohesiveness: null };
+      newLocalScores = { trustworthiness: bestMet.tLocal, continuity: bestMet.cLocal };
+
+      document.getElementById('n-neighbors').value = bestN;
+      document.getElementById('n-neighbors-val').textContent = bestN;
+      document.getElementById('min-dist').value = bestMD;
+      document.getElementById('min-dist-val').textContent = bestMD.toFixed(2);
+      document.getElementById('new-panel-title').innerHTML =
+        `Best Optimized Embedding <span class="params">(n_neighbors=${bestN}, min_dist=${bestMD.toFixed(2)})</span>`;
+
+      renderScatter('chart-new', bestEmb, baselineLabels, newLocalScores);
+      renderComparison();
+      renderRecommendations(
+        { trustworthiness: bestMet.t, continuity: bestMet.c,
+          steadiness: baselineMetrics.steadiness, cohesiveness: baselineMetrics.cohesiveness },
+        bestN, bestMD
+      );
+
+      statusEl.textContent = `Auto-optimize complete — T=${bestMet.t.toFixed(4)}, C=${bestMet.c.toFixed(4)}`;
+      btn.disabled = false;
+      document.getElementById('run-btn').disabled = false;
+    }
+
+    // =========================================================================
     // Controls
     // =========================================================================
     document.getElementById('n-neighbors').addEventListener('input', e => {
@@ -1113,6 +1350,7 @@
     });
 
     document.getElementById('run-btn').addEventListener('click', runUMAP);
+    document.getElementById('auto-optimize-btn').addEventListener('click', autoOptimize);
 
     // Color control listeners
     function redrawBothPanels() {
