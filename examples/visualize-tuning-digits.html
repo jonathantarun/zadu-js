@@ -42,26 +42,6 @@
       padding-bottom: 8px;
     }
 
-    /* Recommendations */
-    #recommendations { display: flex; flex-wrap: wrap; gap: 10px; }
-
-    .rec-item {
-      padding: 10px 14px;
-      border-radius: 6px;
-      font-size: 13px;
-      line-height: 1.5;
-      flex: 1 1 300px;
-      border-left: 4px solid;
-    }
-    .rec-item.high { background: #fff5f5; border-color: #e53e3e; }
-    .rec-item.medium { background: #fffaf0; border-color: #dd6b20; }
-    .rec-item.low { background: #fffff0; border-color: #d69e2e; }
-    .rec-item.good { background: #f0fff4; border-color: #38a169; }
-
-    .rec-metric { font-weight: 700; }
-    .rec-score { font-family: monospace; font-weight: 600; }
-    .rec-suggestion { color: #555; margin-top: 4px; }
-
     /* Controls */
     #controls {
       display: flex;
@@ -243,36 +223,6 @@
 
     .cluster-label { user-select: none; -webkit-user-select: none; }
 
-    /* Auto-Optimize */
-    #auto-optimize-btn {
-      padding: 10px 24px;
-      background: #38a169;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    #auto-optimize-btn:hover { background: #276749; }
-    #auto-optimize-btn:disabled { background: #999; cursor: not-allowed; }
-
-    #optimization-log {
-      display: none;
-      margin-top: 14px;
-      background: #1a1a2e;
-      color: #c8d6e5;
-      font-family: 'Courier New', monospace;
-      font-size: 12px;
-      line-height: 1.6;
-      padding: 14px 16px;
-      border-radius: 6px;
-      max-height: 320px;
-      overflow-y: auto;
-      white-space: pre;
-    }
-
     /* Color controls */
     .color-controls {
       display: flex;
@@ -296,12 +246,6 @@
   <p class="demo-link-bar">Also check out: <a href="https://johnguerra.co/viz/ieeevis2025Papers/" target="_blank">IEEE VIS 2025 Papers Explorer</a></p>
   <h1>ZADU Interactive Parameter Tuning</h1>
 
-  <!-- Recommendations -->
-  <div class="card">
-    <h2>Recommendations</h2>
-    <div id="recommendations"><span style="color:#aaa">Loading...</span></div>
-  </div>
-
   <!-- Parameter Controls -->
   <div class="card">
     <h2>UMAP Parameters</h2>
@@ -318,6 +262,13 @@
         <div class="slider-row">
           <input type="range" id="min-dist" min="0.01" max="0.50" step="0.01" value="0.10">
           <span class="slider-value" id="min-dist-val">0.10</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label for="metric-k">Metric k (neighbors)</label>
+        <div class="slider-row">
+          <input type="range" id="metric-k" min="3" max="25" step="1" value="7">
+          <span class="slider-value" id="metric-k-val">7</span>
         </div>
       </div>
       <button id="run-btn">Re-run UMAP</button>
@@ -345,17 +296,6 @@
         <option value="blueRed">Blue-Red</option>
       </select>
     </div>
-  </div>
-
-  <!-- Auto-Optimize -->
-  <div class="card">
-    <h2>Auto-Optimize</h2>
-    <p style="font-size:13px;color:#666;margin-bottom:12px;">
-      Automatically adjusts n_neighbors and min_dist over multiple iterations to improve Trustworthiness and Continuity.
-      Starts from the current slider values and applies the same adaptive threshold logic used in the full optimizer.
-    </p>
-    <button id="auto-optimize-btn">Auto-Optimize</button>
-    <div id="optimization-log"></div>
   </div>
 
   <!-- Color legend -->
@@ -448,7 +388,7 @@
   <script src="mnist-200-data.js"></script>
   <script>
     // =========================================================================
-    // Inlined core utilities (from src/core/)
+    // Inlined core utilities (from src/core/distance.js + neighbors.js)
     // =========================================================================
     function euclideanDistance(a, b) {
       return Math.sqrt(a.reduce((sum, v, i) => sum + Math.pow(v - b[i], 2), 0));
@@ -491,7 +431,7 @@
     }
 
     // =========================================================================
-    // Inlined metrics (from src/metrics/local/)
+    // Inlined T & C metrics (from src/metrics/local/)
     // =========================================================================
     function computeTrustworthiness(highDistMatrix, lowDim, k) {
       const n = highDistMatrix.length;
@@ -544,65 +484,285 @@
     }
 
     // =========================================================================
-    // Simplified recommendation engine (from parameterRecommender.js)
+    // Inlined SNN utilities (from src/core/snn.js)
     // =========================================================================
-    function generateRecommendations(metrics, currentN, currentMD) {
-      const thresholds = { excellent: 0.90, good: 0.85, fair: 0.80, poor: 0.70 };
-      const recs = [];
-
-      function qualityLabel(score) {
-        if (score >= thresholds.excellent) return 'excellent';
-        if (score >= thresholds.good) return 'good';
-        if (score >= thresholds.fair) return 'fair';
-        return 'poor';
-      }
-
-      function severity(score) {
-        if (score >= thresholds.good) return 'good';
-        if (score >= thresholds.fair) return 'low';
-        if (score >= thresholds.poor) return 'medium';
-        return 'high';
-      }
-
-      const metricList = [
-        { name: 'Trustworthiness', key: 'trustworthiness', score: metrics.trustworthiness },
-        { name: 'Continuity', key: 'continuity', score: metrics.continuity },
-        { name: 'Steadiness', key: 'steadiness', score: metrics.steadiness },
-        { name: 'Cohesiveness', key: 'cohesiveness', score: metrics.cohesiveness }
-      ];
-
-      for (const m of metricList) {
-        if (m.score === null || m.score === undefined) continue;
-        const sev = severity(m.score);
-        const qual = qualityLabel(m.score);
-        let suggestion = '';
-
-        if (sev === 'good') {
-          suggestion = 'No changes needed.';
-        } else if (m.key === 'continuity') {
-          const newN = Math.max(5, currentN - 5);
-          const newMD = Math.min(0.5, currentMD + 0.02);
-          suggestion = `Try decreasing n_neighbors to ${newN} and increasing min_dist to ${newMD.toFixed(2)} to better preserve local relationships.`;
-        } else {
-          // T, S, Co all benefit from same direction
-          const newN = Math.min(50, currentN + 5);
-          const newMD = Math.max(0.01, currentMD - 0.02);
-          suggestion = `Try increasing n_neighbors to ${newN} and decreasing min_dist to ${newMD.toFixed(2)} to improve ${m.key === 'trustworthiness' ? 'global structure' : 'cluster integrity'}.`;
+    function computeSNNMatrix(knnIndices, k) {
+      const n = knnIndices.length;
+      const snnMatrix = Array(n).fill(null).map(() => Array(n).fill(0));
+      for (let i = 0; i < n; i++) {
+        for (let j = i; j < n; j++) {
+          let c = 0;
+          for (let m = 0; m < k; m++) {
+            for (let nn = 0; nn < k; nn++) {
+              if (knnIndices[i][m] === knnIndices[j][nn]) {
+                c += (k + 1 - m) * (k + 1 - nn);
+              }
+            }
+          }
+          snnMatrix[i][j] = c;
+          snnMatrix[j][i] = c;
         }
+      }
+      return snnMatrix;
+    }
 
-        recs.push({
-          name: m.name,
-          score: m.score,
-          quality: qual,
-          severity: sev,
-          suggestion
-        });
+    function normalizeSNNMatrix(snnMatrix) {
+      const n = snnMatrix.length;
+      let maxVal = 0;
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++)
+          if (snnMatrix[i][j] > maxVal) maxVal = snnMatrix[i][j];
+      if (maxVal === 0) maxVal = 1;
+      const normalized = Array(n).fill(null).map(() => Array(n).fill(0));
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++)
+          normalized[i][j] = snnMatrix[i][j] / maxVal;
+      return normalized;
+    }
+
+    function computeSNNDistanceMatrix(snnMatrix, alpha) {
+      const n = snnMatrix.length;
+      const distMatrix = Array(n).fill(null).map(() => Array(n).fill(0));
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++)
+          distMatrix[i][j] = 1 / (snnMatrix[i][j] + alpha);
+      return distMatrix;
+    }
+
+    // =========================================================================
+    // Inlined random walk (from src/core/randomWalk.js)
+    // =========================================================================
+    function extractCluster(knnIndices, snnMatrix, startIdx, walkNum) {
+      const clusterMember = new Set([startIdx]);
+      const queue = [startIdx];
+      let visitNum = 0;
+      while (visitNum < walkNum && queue.length > 0) {
+        const i = queue.shift();
+        for (const j of knnIndices[i]) {
+          const probability = 1 - snnMatrix[i][j];
+          if (Math.random() > probability) {
+            queue.push(j);
+            clusterMember.add(j);
+            visitNum++;
+            if (visitNum >= walkNum) break;
+          }
+        }
+      }
+      return Array.from(clusterMember);
+    }
+
+    // =========================================================================
+    // DBSCAN cluster (replaces hdbscan-ts for browser use)
+    // =========================================================================
+    function clusterWithDbscan(data, indices) {
+      if (indices.length < 2) return [indices];
+
+      const points = indices.map(i => data[i]);
+      const n = points.length;
+
+      // Pairwise distances for this subset
+      const subDist = Array(n).fill(null).map(() => Array(n).fill(0));
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const d = euclideanDistance(points[i], points[j]);
+          subDist[i][j] = subDist[j][i] = d;
+        }
       }
 
-      // Sort: worst first
-      const sevOrder = { high: 0, medium: 1, low: 2, good: 3 };
-      recs.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]);
-      return recs;
+      // Adaptive eps: 2x mean nearest-neighbor distance
+      let totalNNDist = 0;
+      for (let i = 0; i < n; i++) {
+        let minDist = Infinity;
+        for (let j = 0; j < n; j++) {
+          if (i !== j && subDist[i][j] < minDist) minDist = subDist[i][j];
+        }
+        totalNNDist += minDist;
+      }
+      const eps = (totalNNDist / n) * 2;
+
+      const minPts = 2;
+      const UNVISITED = -1, NOISE = -2;
+      const labels = Array(n).fill(UNVISITED);
+      let clusterIdx = 0;
+
+      function regionQuery(i) {
+        const result = [];
+        for (let j = 0; j < n; j++) {
+          if (i !== j && subDist[i][j] <= eps) result.push(j);
+        }
+        return result;
+      }
+
+      for (let i = 0; i < n; i++) {
+        if (labels[i] !== UNVISITED) continue;
+        const nbrs = regionQuery(i);
+        if (nbrs.length < minPts) { labels[i] = NOISE; continue; }
+        labels[i] = clusterIdx;
+        const seed = nbrs.filter(j => j !== i);
+        while (seed.length > 0) {
+          const j = seed.shift();
+          if (labels[j] === NOISE) labels[j] = clusterIdx;
+          if (labels[j] !== UNVISITED) continue;
+          labels[j] = clusterIdx;
+          const jNbrs = regionQuery(j);
+          if (jNbrs.length >= minPts) {
+            seed.push(...jNbrs.filter(p => labels[p] === UNVISITED || labels[p] === NOISE));
+          }
+        }
+        clusterIdx++;
+      }
+
+      const clusters = new Map();
+      for (let i = 0; i < n; i++) {
+        const key = labels[i] === NOISE ? `noise_${i}` : labels[i];
+        if (!clusters.has(key)) clusters.set(key, []);
+        clusters.get(key).push(indices[i]);
+      }
+      return [...clusters.values()];
+    }
+
+    // =========================================================================
+    // Steadiness & Cohesiveness (from src/metrics/cluster/steadiness_cohesiveness.js)
+    // =========================================================================
+    function normalizeDistMatrixSNC(distMatrix) {
+      const n = distMatrix.length;
+      let maxVal = 0;
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++)
+          if (distMatrix[i][j] > maxVal) maxVal = distMatrix[i][j];
+      if (maxVal === 0) maxVal = 1;
+      const normalized = Array(n).fill(null).map(() => Array(n).fill(0));
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++)
+          normalized[i][j] = distMatrix[i][j] / maxVal;
+      return normalized;
+    }
+
+    function computeClusterDistance(clusterA, clusterB, rawSNNNorm, embSNNNorm, alpha) {
+      const pairNum = clusterA.length * clusterB.length;
+      let rawSim = 0, embSim = 0;
+      for (const i of clusterA) {
+        for (const j of clusterB) {
+          rawSim += rawSNNNorm[i][j];
+          embSim += embSNNNorm[i][j];
+        }
+      }
+      rawSim /= pairNum;
+      embSim /= pairNum;
+      return { rawDist: 1 / (rawSim + alpha), embDist: 1 / (embSim + alpha) };
+    }
+
+    function computeDistortionBounds(rawSNNDistMatrix, embSNNDistMatrix) {
+      const n = rawSNNDistMatrix.length;
+      let dissimMax = -Infinity, dissimMin = Infinity;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const dissim = rawSNNDistMatrix[i][j] - embSNNDistMatrix[i][j];
+          if (dissim > dissimMax) dissimMax = dissim;
+          if (dissim < dissimMin) dissimMin = dissim;
+        }
+      }
+      return {
+        maxCompress: dissimMax > 0 ? dissimMax : 0,
+        minCompress: dissimMin > 0 ? dissimMin : 0,
+        maxStretch: dissimMin < 0 ? -dissimMin : 0,
+        minStretch: dissimMax < 0 ? -dissimMax : 0
+      };
+    }
+
+    function measureSingleIteration(mode, infos, highDim, lowDim, walkNum, alpha, maxVal, minVal, localDistortions, localWeights) {
+      const n = infos.n;
+      let extractKNN, extractSNN, clusterData;
+      if (mode === 'steadiness') {
+        extractKNN = infos.embKNN;
+        extractSNN = infos.embSNNNorm;
+        clusterData = highDim;
+      } else {
+        extractKNN = infos.rawKNN;
+        extractSNN = infos.rawSNNNorm;
+        clusterData = lowDim;
+      }
+
+      const seedIdx = Math.floor(Math.random() * n);
+      const clusterIndices = extractCluster(extractKNN, extractSNN, seedIdx, walkNum);
+      if (clusterIndices.length < 2) return { distortionSum: 0, weightSum: 0 };
+
+      const separatedClusters = clusterWithDbscan(clusterData, clusterIndices);
+
+      let distortionSum = 0, weightSum = 0;
+      for (let i = 0; i < separatedClusters.length; i++) {
+        for (let j = 0; j < i; j++) {
+          const { rawDist, embDist } = computeClusterDistance(
+            separatedClusters[i], separatedClusters[j],
+            infos.rawSNNNorm, infos.embSNNNorm, alpha
+          );
+          const distance = mode === 'steadiness' ? rawDist - embDist : embDist - rawDist;
+          if (distance <= 0) continue;
+          const range = maxVal - minVal;
+          const distortion = range > 0 ? (distance - minVal) / range : 0;
+          const weight = separatedClusters[i].length * separatedClusters[j].length;
+          distortionSum += distortion * weight;
+          weightSum += weight;
+          for (const idx of separatedClusters[i]) {
+            localDistortions[idx] += distortion * weight;
+            localWeights[idx] += weight;
+          }
+          for (const idx of separatedClusters[j]) {
+            localDistortions[idx] += distortion * weight;
+            localWeights[idx] += weight;
+          }
+        }
+      }
+      return { distortionSum, weightSum };
+    }
+
+    function computeSteadinessCohesiveness(highDim, lowDim, k, iterations = 50) {
+      const n = highDim.length;
+      const alpha = 0.1;
+      const walkNum = Math.max(2, Math.floor(n * 0.3));
+
+      const rawDistMatrix = calculateDistanceMatrix(highDim);
+      const embDistMatrix = calculateDistanceMatrix(lowDim);
+      const rawDistNorm = normalizeDistMatrixSNC(rawDistMatrix);
+      const embDistNorm = normalizeDistMatrixSNC(embDistMatrix);
+
+      const rawKNN = getKNearestNeighbors(rawDistNorm, k);
+      const embKNN = getKNearestNeighbors(embDistNorm, k);
+      const rawSNNNorm = normalizeSNNMatrix(computeSNNMatrix(rawKNN, k));
+      const embSNNNorm = normalizeSNNMatrix(computeSNNMatrix(embKNN, k));
+      const rawSNNDistMatrix = computeSNNDistanceMatrix(rawSNNNorm, alpha);
+      const embSNNDistMatrix = computeSNNDistanceMatrix(embSNNNorm, alpha);
+
+      const { maxCompress, minCompress, maxStretch, minStretch } =
+        computeDistortionBounds(rawSNNDistMatrix, embSNNDistMatrix);
+
+      const infos = { n, rawKNN, embKNN, rawSNNNorm, embSNNNorm };
+
+      const sLocalD = Array(n).fill(0), sLocalW = Array(n).fill(0);
+      const cLocalD = Array(n).fill(0), cLocalW = Array(n).fill(0);
+      let sDistSum = 0, sWeightSum = 0, cDistSum = 0, cWeightSum = 0;
+
+      for (let iter = 0; iter < iterations; iter++) {
+        const sRes = measureSingleIteration('steadiness', infos, highDim, lowDim, walkNum, alpha, maxCompress, minCompress, sLocalD, sLocalW);
+        sDistSum += sRes.distortionSum;
+        sWeightSum += sRes.weightSum;
+        const cRes = measureSingleIteration('cohesiveness', infos, highDim, lowDim, walkNum, alpha, maxStretch, minStretch, cLocalD, cLocalW);
+        cDistSum += cRes.distortionSum;
+        cWeightSum += cRes.weightSum;
+      }
+
+      const sScore = sWeightSum > 0 ? 1 - sDistSum / sWeightSum : 1;
+      const cScore = cWeightSum > 0 ? 1 - cDistSum / cWeightSum : 1;
+
+      const sLocalScores = sLocalD.map((d, i) =>
+        sLocalW[i] > 0 ? Math.max(0, Math.min(1, 1 - d / sLocalW[i])) : 1);
+      const cLocalScores = cLocalD.map((d, i) =>
+        cLocalW[i] > 0 ? Math.max(0, Math.min(1, 1 - d / cLocalW[i])) : 1);
+
+      return {
+        steadiness: { score: Math.max(0, Math.min(1, sScore)), localScores: sLocalScores },
+        cohesiveness: { score: Math.max(0, Math.min(1, cScore)), localScores: cLocalScores }
+      };
     }
 
     // =========================================================================
@@ -618,10 +778,10 @@
     let newEmbedding = null;
     let newMetrics = null;
     let newLocalScores = {};
-    const metricK = 7;
+    let metricK = 7;
     let selectedPoint = null;
     const panelCircles = {};
-    let digitDataURLs = [];   // pre-generated base64 thumbnails, one per sample
+    let digitDataURLs = [];
 
     // =========================================================================
     // Digit thumbnail generation
@@ -634,7 +794,7 @@
       digitDataURLs = highDimData.map(pixels => {
         const img = ctx.createImageData(28, 28);
         for (let px = 0; px < 784; px++) {
-          const v = Math.round((1 - pixels[px]) * 255);  // inverted: black digit on white bg
+          const v = Math.round((1 - pixels[px]) * 255);
           img.data[px * 4]     = v;
           img.data[px * 4 + 1] = v;
           img.data[px * 4 + 2] = v;
@@ -646,7 +806,7 @@
     }
 
     // Color state
-    let colorMode = 'metric';     // 'cluster' or 'metric'
+    let colorMode = 'metric';
     let selectedMetric = 'trustworthiness';
     let colorSchemeName = 'grayscale';
 
@@ -671,11 +831,9 @@
       }
       highDimData = MNIST_DATA.highDimData;
       baselineLabels = MNIST_DATA.labels;
-      // Pre-compute high-dim distance matrix (reused for all metric computations)
       document.getElementById('status').textContent = 'Computing distance matrix...';
       highDimDistMatrix = calculateDistanceMatrix(highDimData);
       highDimNeighbors = getKNearestNeighbors(highDimDistMatrix, metricK);
-      // Pre-generate digit thumbnails
       generateDigitDataURLs();
       return true;
     }
@@ -722,7 +880,6 @@
     function renderLegend() {
       const el = document.getElementById('color-legend');
       if (colorMode === 'cluster') {
-        // Digit class swatches 0–9
         let html = '<span class="legend-label">Digit:</span><span style="display:inline-flex;gap:8px;flex-wrap:wrap">';
         for (let d = 0; d < 10; d++) {
           const col = clusterColors[d % clusterColors.length];
@@ -733,26 +890,23 @@
         html += '</span>';
         el.innerHTML = html;
       } else {
-        // Gradient bar + size encoding row
         const N = 110;
-        const TICKS = 11;          // 0.0, 0.1, ..., 1.0
-        const leftPad = 46;        // room for "Color:" / "Size:" row labels
-        const rightPad = 12;       // room for last tick label + last size square
+        const TICKS = 11;
+        const leftPad = 46;
+        const rightPad = 12;
         const barW = 320;
         const svgW = leftPad + barW + rightPad;
         const barH = 14;
         const tickH = 5;
-        const tickLabelY = barH + tickH + 11;  // y of 0.0..1.0 labels
+        const tickLabelY = barH + tickH + 11;
 
-        // Size sample row layout
         const sizeStops = [0, 0.25, 0.5, 0.75, 1.0];
         const maxBoxSize = 20;
-        const sizeRowTopY = tickLabelY + 12;     // top of the tallest box area
-        const sizeRowH = maxBoxSize + 25;         // box + px label + score label
+        const sizeRowTopY = tickLabelY + 12;
+        const sizeRowH = maxBoxSize + 25;
         const svgH = sizeRowTopY + sizeRowH;
         const sliceW = barW / N;
 
-        // Color gradient bar slices
         let rects = '';
         for (let i = 0; i < N; i++) {
           const score = i / (N - 1);
@@ -760,7 +914,6 @@
           rects += `<rect x="${(i * sliceW).toFixed(1)}" y="0" width="${(sliceW + 0.5).toFixed(1)}" height="${barH}" fill="${col}"/>`;
         }
 
-        // Tick marks + labels
         let ticks = '';
         for (let t = 0; t < TICKS; t++) {
           const x = (t / (TICKS - 1)) * barW;
@@ -769,14 +922,12 @@
           ticks += `<text x="${x}" y="${tickLabelY}" text-anchor="middle" font-size="9" fill="#666" font-family="sans-serif">${label}</text>`;
         }
 
-        // Size squares at 5 sample stops, all at positive x
         let sizeBoxes = '';
         sizeStops.forEach(t => {
           const cx = t * barW;
-          const sz = Math.round(10 + t * 10);  // matches getPointSize (big=good)
+          const sz = Math.round(10 + t * 10);
           const col = '#666';
           const bx = cx - sz / 2;
-          // Clamp leftmost box so it never has negative x
           const bxClamped = Math.max(0, bx);
           const by = sizeRowTopY + (maxBoxSize - sz) / 2;
           sizeBoxes += `<rect x="${bxClamped.toFixed(1)}" y="${by.toFixed(1)}" width="${sz}" height="${sz}" fill="${col}" stroke="rgba(0,0,0,0.25)" stroke-width="0.8" rx="1"/>`;
@@ -789,14 +940,11 @@
           <span class="legend-label">${metricLabel}</span>
           <svg width="${svgW}" height="${svgH}" style="display:block">
             <g transform="translate(${leftPad},0)">
-              <!-- Row label: Color -->
               <text x="-6" y="${barH / 2 + 4}" text-anchor="end" font-size="10" fill="#555" font-family="sans-serif">Color</text>
-              <!-- Gradient bar -->
               <rect x="0" y="0" width="${barW}" height="${barH}" rx="2" fill="#eee"/>
               ${rects}
               <rect x="0" y="0" width="${barW}" height="${barH}" rx="2" fill="none" stroke="#bbb" stroke-width="1"/>
               ${ticks}
-              <!-- Row label: Size -->
               <text x="-6" y="${(sizeRowTopY + maxBoxSize / 2 + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="#555" font-family="sans-serif">Size</text>
               ${sizeBoxes}
             </g>
@@ -813,9 +961,7 @@
         return clusterColors[cluster % clusterColors.length];
       }
       const scores = localScores[selectedMetric];
-      if (!scores || scores[index] === undefined) {
-        return '#ccc';
-      }
+      if (!scores || scores[index] === undefined) return '#ccc';
       return colorSchemes[colorSchemeName](scores[index]);
     }
 
@@ -824,7 +970,7 @@
       const scores = localScores[selectedMetric];
       if (!scores || scores[index] === undefined) return 14;
       const s = Math.max(0, Math.min(1, scores[index]));
-      return Math.round(10 + s * 10);  // 10px (bad) → 20px (good)
+      return Math.round(10 + s * 10);
     }
 
     function buildTooltipHtml(d, localScores) {
@@ -842,9 +988,7 @@
           available.push(`<span style="color:${qual}">${abbr}: ${val.toFixed(3)}</span>`);
         }
       }
-      if (available.length > 0) {
-        html += `<br>${available.join(' &nbsp; ')}`;
-      }
+      if (available.length > 0) html += `<br>${available.join(' &nbsp; ')}`;
       return html;
     }
 
@@ -893,14 +1037,12 @@
           `translate(${d.svgX - d.size / 2},${d.svgY - d.size / 2})`)
         .style('cursor', 'pointer');
 
-      // Digit image
       groups.append('image')
         .attr('width', d => d.size)
         .attr('height', d => d.size)
         .attr('href', d => digitDataURLs[d.index])
         .attr('preserveAspectRatio', 'none');
 
-      // Colored quality fill + border
       groups.append('rect')
         .attr('width', d => d.size)
         .attr('height', d => d.size)
@@ -940,18 +1082,13 @@
           syncHighlight(d.index);
         });
 
-      // Click SVG background to deselect
       svg.on('click', () => { syncHighlight(null); });
-
-      // Register groups for this panel (replaces circle selection)
       panelCircles[containerId] = groups;
 
-      // If a point is already selected, apply highlighting to this new panel
       if (selectedPoint !== null) {
         applyHighlight(groups, selectedPoint, new Set(highDimNeighbors[selectedPoint]));
       }
 
-      // Cluster labels
       const clusters = {};
       labels.forEach((label, i) => {
         if (!clusters[label]) clusters[label] = { sx: 0, sy: 0, n: 0 };
@@ -976,7 +1113,6 @@
           .text(label);
       });
 
-      // Min scores label below the plot
       const metricNames = { trustworthiness: 'T', continuity: 'C', steadiness: 'S', cohesiveness: 'Co' };
       const minItems = [];
       for (const [key, abbr] of Object.entries(metricNames)) {
@@ -991,23 +1127,6 @@
       if (minItems.length > 0) {
         container.append('div').attr('class', 'min-scores').html(minItems.join(''));
       }
-    }
-
-    // =========================================================================
-    // Recommendations panel
-    // =========================================================================
-    function renderRecommendations(metrics, currentN, currentMD) {
-      const recs = generateRecommendations(metrics, currentN, currentMD);
-      const container = document.getElementById('recommendations');
-
-      container.innerHTML = recs.map(r => `
-        <div class="rec-item ${r.severity}">
-          <span class="rec-metric">${r.name}</span>:
-          <span class="rec-score">${r.score.toFixed(4)}</span>
-          <span class="quality-badge quality-${r.quality}">${r.quality}</span>
-          <div class="rec-suggestion">${r.suggestion}</div>
-        </div>
-      `).join('');
     }
 
     // =========================================================================
@@ -1039,7 +1158,7 @@
 
       const tbody = document.getElementById('comparison-body');
       tbody.innerHTML = rows.map(r => {
-        const baseStr = r.base.toFixed(4) + qualityBadge(r.base);
+        const baseStr = r.base != null ? r.base.toFixed(4) + qualityBadge(r.base) : '<span class="score-na">--</span>';
 
         let newStr, deltaStr;
         if (r.newVal === null) {
@@ -1053,7 +1172,6 @@
           deltaStr = `<span class="${cls}">${sign}${delta.toFixed(4)}</span>`;
         }
 
-        // Min score columns
         const baseMinStr = r.baseMin !== null ? r.baseMin.toFixed(4) + qualityBadge(r.baseMin) : '<span class="score-na">--</span>';
         let newMinStr, minDeltaStr;
         if (r.newMin === null) {
@@ -1082,12 +1200,9 @@
 
       btn.disabled = true;
       status.textContent = 'Running UMAP...';
-
-      // Use setTimeout to allow the UI to update before blocking computation
       await new Promise(resolve => setTimeout(resolve, 50));
 
       try {
-        // Run DruidJS UMAP
         const X = druid.Matrix.from(highDimData);
         const umap = new druid.UMAP(X, {
           n_neighbors: nNeighbors,
@@ -1098,52 +1213,43 @@
         });
 
         const embMatrix = umap.transform();
-
-        // Convert Matrix to 2D array
         const N = embMatrix.shape[0];
         newEmbedding = [];
         for (let i = 0; i < N; i++) {
           newEmbedding.push([embMatrix.entry(i, 0), embMatrix.entry(i, 1)]);
         }
 
-        status.textContent = 'Computing metrics...';
+        status.textContent = 'Computing T & C...';
         await new Promise(resolve => setTimeout(resolve, 20));
 
-        // Compute T & C using pre-computed highDimDistMatrix
         const tResult = computeTrustworthiness(highDimDistMatrix, newEmbedding, metricK);
         const cResult = computeContinuity(highDimDistMatrix, newEmbedding, metricK);
+
+        status.textContent = 'Computing S & Co...';
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        const sncResult = computeSteadinessCohesiveness(highDimData, newEmbedding, metricK);
 
         newMetrics = {
           trustworthiness: tResult.score,
           continuity: cResult.score,
-          steadiness: null,
-          cohesiveness: null
+          steadiness: sncResult.steadiness.score,
+          cohesiveness: sncResult.cohesiveness.score
         };
         newLocalScores = {
           trustworthiness: tResult.localScores,
-          continuity: cResult.localScores
+          continuity: cResult.localScores,
+          steadiness: sncResult.steadiness.localScores,
+          cohesiveness: sncResult.cohesiveness.localScores
         };
 
-        // Update title
         document.getElementById('new-panel-title').innerHTML =
-          `New Embedding <span class="params">(n_neighbors=${nNeighbors}, min_dist=${minDist.toFixed(2)})</span>`;
+          `New Embedding <span class="params">(n_neighbors=${nNeighbors}, min_dist=${minDist.toFixed(2)}, k=${metricK})</span>`;
 
-        // Render new scatter
         renderScatter('chart-new', newEmbedding, baselineLabels, newLocalScores);
-
-        // Update comparison table
         renderComparison();
 
-        // Update recommendations with new T & C (keep baseline S & Co for context)
-        const combinedMetrics = {
-          trustworthiness: newMetrics.trustworthiness,
-          continuity: newMetrics.continuity,
-          steadiness: baselineMetrics.steadiness,
-          cohesiveness: baselineMetrics.cohesiveness
-        };
-        renderRecommendations(combinedMetrics, nNeighbors, minDist);
-
-        status.textContent = `Done (T=${tResult.score.toFixed(4)}, C=${cResult.score.toFixed(4)})`;
+        status.textContent = `Done (T=${tResult.score.toFixed(4)}, C=${cResult.score.toFixed(4)}, S=${sncResult.steadiness.score.toFixed(4)}, Co=${sncResult.cohesiveness.score.toFixed(4)})`;
       } catch (err) {
         status.textContent = 'Error: ' + err.message;
         console.error(err);
@@ -1153,189 +1259,79 @@
     }
 
     // =========================================================================
-    // Auto-Optimize
+    // Recompute all metrics when k changes
     // =========================================================================
-
-    // Returns next {n, md} params based on current T/C scores, or null if no change needed.
-    // Mirrors the core logic of parameterRecommender.js for browser use.
-    function getRecommendedParams(t, c, nN, mD) {
-      const tcGap = Math.abs(t - c);
-      if (c < 0.85) {
-        // Continuity low: smaller neighborhood + more spread
-        return { n: Math.max(5, nN - 5), md: Math.min(0.5, parseFloat((mD + 0.02).toFixed(2))) };
-      }
-      if (t < 0.85) {
-        // Trustworthiness low: larger neighborhood + tighter packing
-        return { n: Math.min(50, nN + 5), md: Math.max(0.01, parseFloat((mD - 0.02).toFixed(2))) };
-      }
-      if (tcGap > 0.15) {
-        // Large T-C gap: shift n_neighbors toward balance
-        return t > c
-          ? { n: Math.max(5, nN - 5), md: Math.min(0.5, parseFloat((mD + 0.02).toFixed(2))) }
-          : { n: Math.min(50, nN + 5), md: Math.max(0.01, parseFloat((mD - 0.02).toFixed(2))) };
-      }
-      return null; // both good, no change
-    }
-
-    async function autoOptimize() {
-      const btn = document.getElementById('auto-optimize-btn');
-      const logEl = document.getElementById('optimization-log');
-      const statusEl = document.getElementById('status');
-
+    async function recomputeAllMetrics(k) {
+      const status = document.getElementById('status');
+      const btn = document.getElementById('run-btn');
       btn.disabled = true;
-      document.getElementById('run-btn').disabled = true;
-      logEl.textContent = '';
-      logEl.style.display = 'block';
-
-      function log(msg) {
-        logEl.textContent += msg + '\n';
-        logEl.scrollTop = logEl.scrollHeight;
-      }
-
-      function runDruidUMAP(nN, mD) {
-        const X = druid.Matrix.from(highDimData);
-        const umap = new druid.UMAP(X, { n_neighbors: nN, min_dist: mD, d: 2, _n_epochs: 350, seed: 42 });
-        const emb = umap.transform();
-        const result = [];
-        for (let i = 0; i < emb.shape[0]; i++) result.push([emb.entry(i, 0), emb.entry(i, 1)]);
-        return result;
-      }
-
-      function evalMetrics(embedding) {
-        const t = computeTrustworthiness(highDimDistMatrix, embedding, metricK);
-        const c = computeContinuity(highDimDistMatrix, embedding, metricK);
-        return { t: t.score, c: c.score, tLocal: t.localScores, cLocal: c.localScores };
-      }
-
-      const maxIter = 8;
-      let currentN = parseInt(document.getElementById('n-neighbors').value);
-      let currentMD = parseFloat(document.getElementById('min-dist').value);
-
-      // ---- Baseline ----
-      log('Computing baseline metrics for adaptive thresholds...');
-      statusEl.textContent = 'Auto-optimizing...';
+      status.textContent = `Recomputing metrics (k=${k})...`;
       await new Promise(r => setTimeout(r, 30));
 
-      const baseEmb = runDruidUMAP(currentN, currentMD);
-      const baseMet = evalMetrics(baseEmb);
-      const baseScore = (baseMet.t + baseMet.c) / 2;
+      try {
+        // Update neighbor cache used for highlight sync
+        highDimNeighbors = getKNearestNeighbors(highDimDistMatrix, k);
 
-      const tTarget = Math.min(0.95, baseMet.t + 0.05);
-      const cTarget = Math.min(0.95, baseMet.c + 0.05);
+        // Baseline T & C
+        const baseTResult = computeTrustworthiness(highDimDistMatrix, baselineEmbedding, k);
+        const baseCResult = computeContinuity(highDimDistMatrix, baselineEmbedding, k);
 
-      log('\n' + '='.repeat(60));
-      log('AUTO-OPTIMIZE  (Trustworthiness & Continuity)');
-      log('='.repeat(60));
-      log(`Starting params : n_neighbors=${currentN}, min_dist=${currentMD.toFixed(2)}`);
-      log(`Baseline        : T=${baseMet.t.toFixed(4)}  C=${baseMet.c.toFixed(4)}`);
-      log(`Targets (+ 5%)  : T≥${tTarget.toFixed(4)}  C≥${cTarget.toFixed(4)}`);
-      log(`Max iterations  : ${maxIter}`);
-      log('='.repeat(60));
-
-      const history = [{ n: currentN, md: currentMD, score: baseScore }];
-      let bestScore = baseScore;
-      let bestEmb = baseEmb;
-      let bestMet = baseMet;
-      let bestN = currentN;
-      let bestMD = currentMD;
-      let currentMet = baseMet;
-
-      for (let iter = 0; iter < maxIter; iter++) {
-        const next = getRecommendedParams(currentMet.t, currentMet.c, currentN, currentMD);
-
-        if (!next) {
-          log('\nBoth metrics are good. Stopping.');
-          break;
-        }
-        if (next.n === currentN && next.md === currentMD) {
-          log('\nNo parameter changes suggested. Stopping.');
-          break;
-        }
-
-        // Oscillation detection
-        const seen = history.some(h => h.n === next.n && h.md === next.md);
-        if (seen) {
-          log('\n⚠️ Parameter oscillation detected. Stopping.');
-          break;
-        }
-
-        currentN = next.n;
-        currentMD = next.md;
-
-        log(`\n--- Iteration ${iter + 1}/${maxIter} ---`);
-        log(`Params      : n_neighbors=${currentN}, min_dist=${currentMD.toFixed(2)}`);
-        log('Running UMAP...');
-        await new Promise(r => setTimeout(r, 30));
-
-        const emb = runDruidUMAP(currentN, currentMD);
-        log('Computing metrics...');
+        status.textContent = `Computing S & Co for baseline (k=${k})...`;
         await new Promise(r => setTimeout(r, 20));
 
-        const met = evalMetrics(emb);
-        const score = (met.t + met.c) / 2;
+        const baseSNCResult = computeSteadinessCohesiveness(highDimData, baselineEmbedding, k);
 
-        log(`T=${met.t.toFixed(4)} ${met.t >= tTarget ? '✓' : '✗'}   C=${met.c.toFixed(4)} ${met.c >= cTarget ? '✓' : '✗'}`);
+        baselineMetrics = {
+          trustworthiness: baseTResult.score,
+          continuity: baseCResult.score,
+          steadiness: baseSNCResult.steadiness.score,
+          cohesiveness: baseSNCResult.cohesiveness.score
+        };
+        baselineLocalScores = {
+          trustworthiness: baseTResult.localScores,
+          continuity: baseCResult.localScores,
+          steadiness: baseSNCResult.steadiness.localScores,
+          cohesiveness: baseSNCResult.cohesiveness.localScores
+        };
 
-        if (score > bestScore) {
-          bestScore = score;
-          bestEmb = emb;
-          bestMet = met;
-          bestN = currentN;
-          bestMD = currentMD;
-          log(`🎉 New best score: ${score.toFixed(4)}`);
+        renderScatter('chart-baseline', baselineEmbedding, baselineLabels, baselineLocalScores);
+
+        if (newEmbedding) {
+          status.textContent = `Computing metrics for new embedding (k=${k})...`;
+          await new Promise(r => setTimeout(r, 20));
+
+          const tResult = computeTrustworthiness(highDimDistMatrix, newEmbedding, k);
+          const cResult = computeContinuity(highDimDistMatrix, newEmbedding, k);
+
+          status.textContent = `Computing S & Co for new embedding (k=${k})...`;
+          await new Promise(r => setTimeout(r, 20));
+
+          const sncResult = computeSteadinessCohesiveness(highDimData, newEmbedding, k);
+
+          newMetrics = {
+            trustworthiness: tResult.score,
+            continuity: cResult.score,
+            steadiness: sncResult.steadiness.score,
+            cohesiveness: sncResult.cohesiveness.score
+          };
+          newLocalScores = {
+            trustworthiness: tResult.localScores,
+            continuity: cResult.localScores,
+            steadiness: sncResult.steadiness.localScores,
+            cohesiveness: sncResult.cohesiveness.localScores
+          };
+
+          renderScatter('chart-new', newEmbedding, baselineLabels, newLocalScores);
         }
 
-        history.push({ n: currentN, md: currentMD, score });
-        currentMet = met;
-
-        // Plateau detection (< 0.5% improvement for last 2 steps)
-        if (history.length >= 3) {
-          const s = history.slice(-3);
-          if (Math.abs(s[2].score - s[1].score) < 0.005 && Math.abs(s[1].score - s[0].score) < 0.005) {
-            log('\n✓ Plateau detected (no improvement for 2 iterations). Stopping.');
-            break;
-          }
-        }
-
-        if (met.t >= tTarget && met.c >= cTarget) {
-          log('\n✓ Quality targets met! Stopping.');
-          break;
-        }
+        renderComparison();
+        status.textContent = `k=${k}: T=${baselineMetrics.trustworthiness.toFixed(4)}, C=${baselineMetrics.continuity.toFixed(4)}, S=${baselineMetrics.steadiness.toFixed(4)}, Co=${baselineMetrics.cohesiveness.toFixed(4)}`;
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+        console.error(err);
+      } finally {
+        btn.disabled = false;
       }
-
-      // ---- Final summary ----
-      const improvement = bestScore - baseScore;
-      log('\n' + '='.repeat(60));
-      log('OPTIMIZATION COMPLETE');
-      log('='.repeat(60));
-      log(`Best params : n_neighbors=${bestN}, min_dist=${bestMD.toFixed(2)}`);
-      log(`Best scores : T=${bestMet.t.toFixed(4)}  C=${bestMet.c.toFixed(4)}`);
-      log(`Improvement : ${improvement >= 0 ? '+' : ''}${(improvement * 100).toFixed(2)}%`);
-      log('='.repeat(60));
-
-      // Update right panel with best result
-      newEmbedding = bestEmb;
-      newMetrics = { trustworthiness: bestMet.t, continuity: bestMet.c, steadiness: null, cohesiveness: null };
-      newLocalScores = { trustworthiness: bestMet.tLocal, continuity: bestMet.cLocal };
-
-      document.getElementById('n-neighbors').value = bestN;
-      document.getElementById('n-neighbors-val').textContent = bestN;
-      document.getElementById('min-dist').value = bestMD;
-      document.getElementById('min-dist-val').textContent = bestMD.toFixed(2);
-      document.getElementById('new-panel-title').innerHTML =
-        `Best Optimized Embedding <span class="params">(n_neighbors=${bestN}, min_dist=${bestMD.toFixed(2)})</span>`;
-
-      renderScatter('chart-new', bestEmb, baselineLabels, newLocalScores);
-      renderComparison();
-      renderRecommendations(
-        { trustworthiness: bestMet.t, continuity: bestMet.c,
-          steadiness: baselineMetrics.steadiness, cohesiveness: baselineMetrics.cohesiveness },
-        bestN, bestMD
-      );
-
-      statusEl.textContent = `Auto-optimize complete — T=${bestMet.t.toFixed(4)}, C=${bestMet.c.toFixed(4)}`;
-      btn.disabled = false;
-      document.getElementById('run-btn').disabled = false;
     }
 
     // =========================================================================
@@ -1349,10 +1345,15 @@
       document.getElementById('min-dist-val').textContent = parseFloat(e.target.value).toFixed(2);
     });
 
-    document.getElementById('run-btn').addEventListener('click', runUMAP);
-    document.getElementById('auto-optimize-btn').addEventListener('click', autoOptimize);
+    document.getElementById('metric-k').addEventListener('input', e => {
+      const k = parseInt(e.target.value);
+      document.getElementById('metric-k-val').textContent = k;
+      metricK = k;
+      recomputeAllMetrics(k);
+    });
 
-    // Color control listeners
+    document.getElementById('run-btn').addEventListener('click', runUMAP);
+
     function redrawBothPanels() {
       renderLegend();
       renderScatter('chart-baseline', baselineEmbedding, baselineLabels, baselineLocalScores);
@@ -1379,7 +1380,7 @@
     });
 
     // =========================================================================
-    // Initialize
+    // Force-simulation neighbor spread on hover
     // =========================================================================
     function spreadNeighbors(hoveredDatum, allPoints, groupsSel) {
       const cx = hoveredDatum.origSvgX, cy = hoveredDatum.origSvgY;
@@ -1409,12 +1410,14 @@
         .attr('transform', d => `translate(${d.origSvgX - d.size / 2},${d.origSvgY - d.size / 2})`);
     }
 
+    // =========================================================================
+    // Initialize
+    // =========================================================================
     async function initialize() {
       if (!loadData()) return;
 
       const status = document.getElementById('status');
 
-      // Compute baseline UMAP in-browser (same environment as new runs)
       status.textContent = 'Computing baseline embedding (n_neighbors=15, min_dist=0.10)...';
       await new Promise(r => setTimeout(r, 50));
 
@@ -1426,37 +1429,34 @@
         baselineEmbedding.push([baseEmb.entry(i, 0), baseEmb.entry(i, 1)]);
       }
 
-      // Compute baseline metrics
-      status.textContent = 'Computing baseline metrics...';
+      status.textContent = 'Computing baseline T & C...';
       await new Promise(r => setTimeout(r, 20));
 
       const baseTResult = computeTrustworthiness(highDimDistMatrix, baselineEmbedding, metricK);
       const baseCResult = computeContinuity(highDimDistMatrix, baselineEmbedding, metricK);
 
+      status.textContent = 'Computing baseline S & Co (may take a moment)...';
+      await new Promise(r => setTimeout(r, 20));
+
+      const baseSNCResult = computeSteadinessCohesiveness(highDimData, baselineEmbedding, metricK);
+
       baselineMetrics = {
         trustworthiness: baseTResult.score,
         continuity: baseCResult.score,
-        // S & Co can't be computed in browser — use pre-computed approximation
-        steadiness: MNIST_DATA.metrics.steadiness.global,
-        cohesiveness: MNIST_DATA.metrics.cohesiveness.global
+        steadiness: baseSNCResult.steadiness.score,
+        cohesiveness: baseSNCResult.cohesiveness.score
       };
       baselineLocalScores = {
         trustworthiness: baseTResult.localScores,
         continuity: baseCResult.localScores,
-        steadiness: MNIST_DATA.metrics.steadiness.local,
-        cohesiveness: MNIST_DATA.metrics.cohesiveness.local
+        steadiness: baseSNCResult.steadiness.localScores,
+        cohesiveness: baseSNCResult.cohesiveness.localScores
       };
 
       status.textContent = '';
 
-      // Render legend and baseline
       renderLegend();
       renderScatter('chart-baseline', baselineEmbedding, baselineLabels, baselineLocalScores);
-
-      // Render recommendations from baseline metrics
-      renderRecommendations(baselineMetrics, 15, 0.1);
-
-      // Render initial comparison table (new column empty)
       renderComparison();
     }
 
