@@ -289,8 +289,8 @@
       </select>
       <label for="color-scheme">Scheme:</label>
       <select id="color-scheme">
-        <option value="grayscale" selected>Grayscale</option>
-        <option value="viridis">Viridis</option>
+        <option value="grayscale">Grayscale</option>
+        <option value="viridis" selected>Viridis</option>
         <option value="spectral">Spectral</option>
         <option value="turbo">Turbo</option>
         <option value="blueRed">Blue-Red</option>
@@ -808,7 +808,7 @@
     // Color state
     let colorMode = 'metric';
     let selectedMetric = 'trustworthiness';
-    let colorSchemeName = 'grayscale';
+    let colorSchemeName = 'viridis';
 
     const clusterColors = d3.schemeCategory10;
     const tooltip = d3.select('#tooltip');
