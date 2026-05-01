@@ -137,11 +137,10 @@ function computeDistortionBounds(rawSNNDistMatrix, embSNNDistMatrix) {
  * @param {number} alpha - distance parameter
  * @param {number} maxVal - max distortion for normalization
  * @param {number} minVal - min distortion for normalization
- * @param {number[]} localDistortions - accumulator for local scores
- * @param {number[]} localWeights - accumulator for local weights
+ * @param {Map[]} log - per-point per-pair accumulator: log[i].get(j) = [accDistortion, count]
  * @returns {{ distortionSum: number, weightSum: number }}
  */
-function measureSingleIteration(mode, infos, highDim, lowDim, walkNum, alpha, maxVal, minVal, localDistortions, localWeights) {
+function measureSingleIteration(mode, infos, highDim, lowDim, walkNum, alpha, maxVal, minVal, log) {
   const n = infos.n;
 
   // Select which space to extract from
@@ -205,14 +204,15 @@ function measureSingleIteration(mode, infos, highDim, lowDim, walkNum, alpha, ma
       distortionSum += distortion * weight;
       weightSum += weight;
 
-      // Accumulate local scores
-      for (const idx of separatedClusters[i]) {
-        localDistortions[idx] += distortion * weight;
-        localWeights[idx] += weight;
-      }
-      for (const idx of separatedClusters[j]) {
-        localDistortions[idx] += distortion * weight;
-        localWeights[idx] += weight;
+      // Record per-pair log entries (matches Python _record_log)
+      const dval = distortion * weight;
+      for (const ii of separatedClusters[i]) {
+        for (const jj of separatedClusters[j]) {
+          if (!log[ii].has(jj)) log[ii].set(jj, [0, 0]);
+          const eij = log[ii].get(jj); eij[0] += dval; eij[1]++;
+          if (!log[jj].has(ii)) log[jj].set(ii, [0, 0]);
+          const eji = log[jj].get(ii); eji[0] += dval; eji[1]++;
+        }
       }
     }
   }
@@ -306,11 +306,9 @@ function steadinessCohesiveness(highDim, lowDim, options = {}) {
   // Calculate walk length
   const walkNum = Math.max(2, Math.floor(n * walkNumRatio));
 
-  // Initialize accumulators
-  const steadinessLocalDistortions = Array(n).fill(0);
-  const steadinessLocalWeights = Array(n).fill(0);
-  const cohesivenessLocalDistortions = Array(n).fill(0);
-  const cohesivenessLocalWeights = Array(n).fill(0);
+  // Initialize per-pair logs: log[i] is a Map from partner index j to [accDistortion, count]
+  const steadinessLog = Array.from({ length: n }, () => new Map());
+  const cohesivenessLog = Array.from({ length: n }, () => new Map());
 
   let steadinessDistortionSum = 0;
   let steadinessWeightSum = 0;
@@ -319,26 +317,22 @@ function steadinessCohesiveness(highDim, lowDim, options = {}) {
 
   // Run iterations
   for (let iter = 0; iter < iteration; iter++) {
-    // Steadiness: extract from emb, measure distortion in raw
     const steadResult = measureSingleIteration(
       'steadiness', infos, highDim, lowDim, walkNum, alpha,
-      maxCompress, minCompress,
-      steadinessLocalDistortions, steadinessLocalWeights
+      maxCompress, minCompress, steadinessLog
     );
     steadinessDistortionSum += steadResult.distortionSum;
     steadinessWeightSum += steadResult.weightSum;
 
-    // Cohesiveness: extract from raw, measure distortion in emb
     const cohevResult = measureSingleIteration(
       'cohesiveness', infos, highDim, lowDim, walkNum, alpha,
-      maxStretch, minStretch,
-      cohesivenessLocalDistortions, cohesivenessLocalWeights
+      maxStretch, minStretch, cohesivenessLog
     );
     cohesivenessDistortionSum += cohevResult.distortionSum;
     cohesivenessWeightSum += cohevResult.weightSum;
   }
 
-  // Compute final scores
+  // Compute final global scores
   const steadinessScore = steadinessWeightSum > 0
     ? 1 - (steadinessDistortionSum / steadinessWeightSum)
     : 1;
@@ -347,20 +341,26 @@ function steadinessCohesiveness(highDim, lowDim, options = {}) {
     ? 1 - (cohesivenessDistortionSum / cohesivenessWeightSum)
     : 1;
 
-  // Compute local scores
-  const steadinessLocalScores = steadinessLocalDistortions.map((dist, i) => {
-    if (steadinessLocalWeights[i] > 0) {
-      return Math.max(0, Math.min(1, 1 - (dist / steadinessLocalWeights[i])));
+  // Compute local scores matching Python's _vertices_info + local_scores formula:
+  // 1. Finalize each pair entry (acc / count), sum per point → vertex importance
+  // 2. Normalize by max vertex value
+  // 3. Scale by cross-metric ratio: local_stead uses cohesiveness, local_cohev uses steadiness
+  function computeLocalScores(log, crossScore) {
+    const vertices = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      let sum = 0;
+      for (const [, entry] of log[i]) sum += entry[0] / entry[1];
+      vertices[i] = sum;
     }
-    return 1;
-  });
+    let maxVal = 0;
+    for (let i = 0; i < n; i++) if (vertices[i] > maxVal) maxVal = vertices[i];
+    if (maxVal > 0) for (let i = 0; i < n; i++) vertices[i] /= maxVal;
+    const ratio = Math.max((1 - crossScore) * 2, 1);
+    return vertices.map(v => Math.max(0, Math.min(1, 1 - v * ratio)));
+  }
 
-  const cohesivenessLocalScores = cohesivenessLocalDistortions.map((dist, i) => {
-    if (cohesivenessLocalWeights[i] > 0) {
-      return Math.max(0, Math.min(1, 1 - (dist / cohesivenessLocalWeights[i])));
-    }
-    return 1;
-  });
+  const steadinessLocalScores = computeLocalScores(steadinessLog, cohesivenessScore);
+  const cohesivenessLocalScores = computeLocalScores(cohesivenessLog, steadinessScore);
 
   return {
     steadiness: {
