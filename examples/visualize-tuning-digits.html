@@ -192,6 +192,13 @@
     .delta-neutral { color: #999; }
     .score-na { color: #ccc; font-style: italic; }
 
+    .timing-note {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #777;
+      line-height: 1.5;
+    }
+
     .quality-badge {
       display: inline-block;
       padding: 1px 6px;
@@ -245,6 +252,29 @@
 <body>
   <p class="demo-link-bar">Also check out: <a href="https://johnguerra.co/viz/ieeevis2025Papers/" target="_blank">IEEE VIS 2025 Papers Explorer</a></p>
   <h1>ZADU Interactive Parameter Tuning</h1>
+
+  <!-- Dataset Upload -->
+  <div class="card">
+    <h2>Dataset</h2>
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+      <span style="font-weight:600;color:#333;">MNIST-200 (default)</span>
+      <span style="color:#bbb;">|</span>
+      <label style="font-weight:600;color:#333;cursor:pointer;">
+        Upload your own:
+        <input type="file" id="upload-file" accept=".csv,.json" style="margin-left:8px;font-weight:400;">
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#555;cursor:pointer;">
+        <input type="checkbox" id="has-labels" checked>
+        Last CSV column is class labels
+      </label>
+      <span id="upload-status" style="font-size:13px;color:#666;"></span>
+    </div>
+    <div style="margin-top:8px;font-size:12px;color:#999;line-height:1.5;">
+      CSV: one row per point, numeric features, optional label in last column.
+      JSON: <code>[[f1,f2,...], ...]</code> or <code>{"data":[[...]], "labels":[...]}</code>.
+      Digit thumbnails only shown for 784-feature (28×28) data.
+    </div>
+  </div>
 
   <!-- Parameter Controls -->
   <div class="card">
@@ -323,7 +353,9 @@
         <tr>
           <th>Metric</th>
           <th>Baseline</th>
+          <th>Baseline Time</th>
           <th>New</th>
+          <th>New Time</th>
           <th>Change</th>
           <th>Min (Baseline)</th>
           <th>Min (New)</th>
@@ -331,9 +363,12 @@
         </tr>
       </thead>
       <tbody id="comparison-body">
-        <tr><td colspan="7" style="color:#aaa; text-align:center;">Loading...</td></tr>
+        <tr><td colspan="9" style="color:#aaa; text-align:center;">Loading...</td></tr>
       </tbody>
     </table>
+    <div class="timing-note">
+      Runtime is measured in-browser with <code>performance.now()</code>. Steadiness and Cohesiveness share setup work, so their displayed times split the shared setup cost evenly and then add each metric's own iteration/local-score time.
+    </div>
   </div>
 
   <!-- Metric Descriptions -->
@@ -670,7 +705,7 @@
       };
     }
 
-    function measureSingleIteration(mode, infos, highDim, lowDim, walkNum, alpha, maxVal, minVal, localDistortions, localWeights) {
+    function measureSingleIteration(mode, infos, highDim, lowDim, walkNum, alpha, maxVal, minVal, log) {
       const n = infos.n;
       let extractKNN, extractSNN, clusterData;
       if (mode === 'steadiness') {
@@ -703,13 +738,14 @@
           const weight = separatedClusters[i].length * separatedClusters[j].length;
           distortionSum += distortion * weight;
           weightSum += weight;
-          for (const idx of separatedClusters[i]) {
-            localDistortions[idx] += distortion * weight;
-            localWeights[idx] += weight;
-          }
-          for (const idx of separatedClusters[j]) {
-            localDistortions[idx] += distortion * weight;
-            localWeights[idx] += weight;
+          const dval = distortion * weight;
+          for (const ii of separatedClusters[i]) {
+            for (const jj of separatedClusters[j]) {
+              if (!log[ii].has(jj)) log[ii].set(jj, [0, 0]);
+              const eij = log[ii].get(jj); eij[0] += dval; eij[1]++;
+              if (!log[jj].has(ii)) log[jj].set(ii, [0, 0]);
+              const eji = log[jj].get(ii); eji[0] += dval; eji[1]++;
+            }
           }
         }
       }
@@ -717,10 +753,12 @@
     }
 
     function computeSteadinessCohesiveness(highDim, lowDim, k, iterations = 50) {
+      const totalStart = performance.now();
       const n = highDim.length;
       const alpha = 0.1;
       const walkNum = Math.max(2, Math.floor(n * 0.3));
 
+      const setupStart = performance.now();
       const rawDistMatrix = calculateDistanceMatrix(highDim);
       const embDistMatrix = calculateDistanceMatrix(lowDim);
       const rawDistNorm = normalizeDistMatrixSNC(rawDistMatrix);
@@ -737,16 +775,24 @@
         computeDistortionBounds(rawSNNDistMatrix, embSNNDistMatrix);
 
       const infos = { n, rawKNN, embKNN, rawSNNNorm, embSNNNorm };
+      const sharedSetupMs = performance.now() - setupStart;
 
-      const sLocalD = Array(n).fill(0), sLocalW = Array(n).fill(0);
-      const cLocalD = Array(n).fill(0), cLocalW = Array(n).fill(0);
+      const steadinessLog = Array.from({ length: n }, () => new Map());
+      const cohesivenessLog = Array.from({ length: n }, () => new Map());
       let sDistSum = 0, sWeightSum = 0, cDistSum = 0, cWeightSum = 0;
+      let steadinessLoopMs = 0;
+      let cohesivenessLoopMs = 0;
 
       for (let iter = 0; iter < iterations; iter++) {
-        const sRes = measureSingleIteration('steadiness', infos, highDim, lowDim, walkNum, alpha, maxCompress, minCompress, sLocalD, sLocalW);
+        const sIterStart = performance.now();
+        const sRes = measureSingleIteration('steadiness', infos, highDim, lowDim, walkNum, alpha, maxCompress, minCompress, steadinessLog);
+        steadinessLoopMs += performance.now() - sIterStart;
         sDistSum += sRes.distortionSum;
         sWeightSum += sRes.weightSum;
-        const cRes = measureSingleIteration('cohesiveness', infos, highDim, lowDim, walkNum, alpha, maxStretch, minStretch, cLocalD, cLocalW);
+
+        const cIterStart = performance.now();
+        const cRes = measureSingleIteration('cohesiveness', infos, highDim, lowDim, walkNum, alpha, maxStretch, minStretch, cohesivenessLog);
+        cohesivenessLoopMs += performance.now() - cIterStart;
         cDistSum += cRes.distortionSum;
         cWeightSum += cRes.weightSum;
       }
@@ -754,14 +800,42 @@
       const sScore = sWeightSum > 0 ? 1 - sDistSum / sWeightSum : 1;
       const cScore = cWeightSum > 0 ? 1 - cDistSum / cWeightSum : 1;
 
-      const sLocalScores = sLocalD.map((d, i) =>
-        sLocalW[i] > 0 ? Math.max(0, Math.min(1, 1 - d / sLocalW[i])) : 1);
-      const cLocalScores = cLocalD.map((d, i) =>
-        cLocalW[i] > 0 ? Math.max(0, Math.min(1, 1 - d / cLocalW[i])) : 1);
+      function computeLocalScores(log, crossScore) {
+        const vertices = new Array(n).fill(0);
+        for (let i = 0; i < n; i++) {
+          let sum = 0;
+          for (const [, entry] of log[i]) sum += entry[0] / entry[1];
+          vertices[i] = sum;
+        }
+        let maxVal = 0;
+        for (let i = 0; i < n; i++) if (vertices[i] > maxVal) maxVal = vertices[i];
+        if (maxVal > 0) for (let i = 0; i < n; i++) vertices[i] /= maxVal;
+        const ratio = Math.max((1 - crossScore) * 2, 1);
+        return vertices.map(v => Math.max(0, Math.min(1, 1 - v * ratio)));
+      }
+
+      const steadinessLocalStart = performance.now();
+      const steadinessLocalScores = computeLocalScores(steadinessLog, cScore);
+      const steadinessLocalMs = performance.now() - steadinessLocalStart;
+
+      const cohesivenessLocalStart = performance.now();
+      const cohesivenessLocalScores = computeLocalScores(cohesivenessLog, sScore);
+      const cohesivenessLocalMs = performance.now() - cohesivenessLocalStart;
+
+      const sharedPerMetricMs = sharedSetupMs / 2;
 
       return {
-        steadiness: { score: Math.max(0, Math.min(1, sScore)), localScores: sLocalScores },
-        cohesiveness: { score: Math.max(0, Math.min(1, cScore)), localScores: cLocalScores }
+        steadiness: {
+          score: Math.max(0, Math.min(1, sScore)),
+          localScores: steadinessLocalScores,
+          runtimeMs: sharedPerMetricMs + steadinessLoopMs + steadinessLocalMs
+        },
+        cohesiveness: {
+          score: Math.max(0, Math.min(1, cScore)),
+          localScores: cohesivenessLocalScores,
+          runtimeMs: sharedPerMetricMs + cohesivenessLoopMs + cohesivenessLocalMs
+        },
+        runtimeMs: performance.now() - totalStart
       };
     }
 
@@ -775,9 +849,11 @@
     let baselineLabels = [];
     let baselineMetrics = {};
     let baselineLocalScores = {};
+    let baselineMetricTimings = {};
     let newEmbedding = null;
     let newMetrics = null;
     let newLocalScores = {};
+    let newMetricTimings = {};
     let metricK = 7;
     let selectedPoint = null;
     const panelCircles = {};
@@ -839,6 +915,96 @@
     }
 
     // =========================================================================
+    // CSV / JSON parsing and upload
+    // =========================================================================
+    function parseCSV(text, lastColIsLabel) {
+      const rows = text.trim().split('\n').map(r => r.split(',').map(v => v.trim()));
+      const data = [], labels = [];
+      for (const row of rows) {
+        if (row.length < 2) continue;
+        const nums = row.map(Number);
+        if (nums.some(isNaN)) continue; // skip header rows
+        if (lastColIsLabel) {
+          labels.push(nums[nums.length - 1]);
+          data.push(nums.slice(0, -1));
+        } else {
+          labels.push(0);
+          data.push(nums);
+        }
+      }
+      return { data, labels };
+    }
+
+    function parseJSON(text) {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return { data: parsed, labels: parsed.map(() => 0) };
+      if (parsed.data) return { data: parsed.data, labels: parsed.labels ?? parsed.data.map(() => 0) };
+      throw new Error('JSON must be an array or {data, labels} object');
+    }
+
+    async function handleUpload(file) {
+      const uploadStatus = document.getElementById('upload-status');
+      try {
+        uploadStatus.textContent = 'Reading file...';
+        await new Promise(r => setTimeout(r, 20));
+
+        const text = await file.text();
+        let data, labels;
+
+        if (file.name.endsWith('.json')) {
+          ({ data, labels } = parseJSON(text));
+        } else {
+          const lastColIsLabel = document.getElementById('has-labels').checked;
+          ({ data, labels } = parseCSV(text, lastColIsLabel));
+        }
+
+        if (data.length < 10) {
+          uploadStatus.textContent = `Error: only ${data.length} valid rows found (need ≥ 10). Check format.`;
+          return;
+        }
+
+        const dim = data[0].length;
+        uploadStatus.textContent = `Parsed ${data.length} pts × ${dim}D. Computing distance matrix...`;
+        await new Promise(r => setTimeout(r, 30));
+
+        // Reset all state with new data
+        highDimData = data;
+        baselineLabels = labels;
+        digitDataURLs = [];
+        newEmbedding = null; newMetrics = null; newLocalScores = {}; newMetricTimings = {};
+        selectedPoint = null;
+        Object.keys(panelCircles).forEach(k => delete panelCircles[k]);
+
+        document.getElementById('chart-baseline').innerHTML = '';
+        document.getElementById('chart-new').innerHTML =
+          '<div class="panel-placeholder">Adjust parameters above and click "Re-run UMAP"</div>';
+        document.getElementById('new-panel-title').innerHTML =
+          'New Embedding <span class="params">(adjust parameters and click Re-run)</span>';
+
+        // Clamp metricK to valid range for this dataset
+        metricK = Math.min(metricK, Math.floor(data.length / 2) - 1);
+        document.getElementById('metric-k').max = Math.floor(data.length / 2) - 1;
+        document.getElementById('metric-k').value = metricK;
+        document.getElementById('metric-k-val').textContent = metricK;
+
+        highDimDistMatrix = calculateDistanceMatrix(highDimData);
+        highDimNeighbors = getKNearestNeighbors(highDimDistMatrix, metricK);
+        if (dim === 784) generateDigitDataURLs();
+
+        uploadStatus.textContent = `${data.length} pts × ${dim}D — running UMAP...`;
+        await runInitializeFromData();
+        uploadStatus.textContent = `${data.length} pts × ${dim}D loaded.`;
+      } catch (e) {
+        uploadStatus.textContent = 'Error: ' + e.message;
+        console.error(e);
+      }
+    }
+
+    document.getElementById('upload-file').addEventListener('change', e => {
+      if (e.target.files[0]) handleUpload(e.target.files[0]);
+    });
+
+    // =========================================================================
     // Neighbor highlight helpers
     // =========================================================================
     function applyHighlight(groups, pointIndex, neighbors) {
@@ -852,7 +1018,7 @@
       groups.attr('opacity', 1);
       groups.select('rect')
         .attr('stroke', p => p.color).attr('stroke-width', 2)
-        .attr('fill', p => p.color).attr('fill-opacity', 0.35);
+        .attr('fill', p => p.color).attr('fill-opacity', digitDataURLs.length > 0 ? 0.35 : 0.75);
     }
 
     function syncHighlight(pointIndex) {
@@ -974,7 +1140,7 @@
     }
 
     function buildTooltipHtml(d, localScores) {
-      let html = `<strong>Point ${d.index}</strong><br>Digit: ${d.cluster}`;
+      let html = `<strong>Point ${d.index}</strong><br>Label: ${d.cluster}`;
       if (colorMode === 'metric') {
         html += `<br>Size: ${d.size}px (${selectedMetric.slice(0,1).toUpperCase() + selectedMetric.slice(1)})`;
       }
@@ -1037,17 +1203,19 @@
           `translate(${d.svgX - d.size / 2},${d.svgY - d.size / 2})`)
         .style('cursor', 'pointer');
 
-      groups.append('image')
-        .attr('width', d => d.size)
-        .attr('height', d => d.size)
-        .attr('href', d => digitDataURLs[d.index])
-        .attr('preserveAspectRatio', 'none');
+      if (digitDataURLs.length > 0) {
+        groups.append('image')
+          .attr('width', d => d.size)
+          .attr('height', d => d.size)
+          .attr('href', d => digitDataURLs[d.index])
+          .attr('preserveAspectRatio', 'none');
+      }
 
       groups.append('rect')
         .attr('width', d => d.size)
         .attr('height', d => d.size)
         .attr('fill', d => d.color)
-        .attr('fill-opacity', 0.35)
+        .attr('fill-opacity', digitDataURLs.length > 0 ? 0.35 : 0.75)
         .attr('stroke', d => d.color)
         .attr('stroke-width', 2);
 
@@ -1138,6 +1306,19 @@
       return `<span class="quality-badge quality-${q}">${q}</span>`;
     }
 
+    function measureRuntime(fn) {
+      const start = performance.now();
+      const result = fn();
+      return { result, ms: performance.now() - start };
+    }
+
+    function formatRuntime(ms) {
+      if (ms == null || Number.isNaN(ms)) return '<span class="score-na">--</span>';
+      if (ms < 1) return `${(ms * 1000).toFixed(0)} µs`;
+      if (ms < 1000) return `${ms.toFixed(1)} ms`;
+      return `${(ms / 1000).toFixed(2)} s`;
+    }
+
     function getMinScore(localScores, key) {
       const scores = localScores[key];
       if (!scores || scores.length === 0) return null;
@@ -1152,6 +1333,8 @@
         name: names[i],
         base: baselineMetrics[key],
         newVal: newMetrics?.[key] ?? null,
+        baseTime: baselineMetricTimings[key],
+        newTime: newMetricTimings[key],
         baseMin: getMinScore(baselineLocalScores, key),
         newMin: getMinScore(newLocalScores, key)
       }));
@@ -1185,7 +1368,17 @@
           minDeltaStr = `<span class="${minCls}">${minSign}${minDelta.toFixed(4)}</span>`;
         }
 
-        return `<tr><td>${r.name}</td><td>${baseStr}</td><td>${newStr}</td><td>${deltaStr}</td><td>${baseMinStr}</td><td>${newMinStr}</td><td>${minDeltaStr}</td></tr>`;
+        return `<tr>
+          <td>${r.name}</td>
+          <td>${baseStr}</td>
+          <td>${formatRuntime(r.baseTime)}</td>
+          <td>${newStr}</td>
+          <td>${formatRuntime(r.newTime)}</td>
+          <td>${deltaStr}</td>
+          <td>${baseMinStr}</td>
+          <td>${newMinStr}</td>
+          <td>${minDeltaStr}</td>
+        </tr>`;
       }).join('');
     }
 
@@ -1222,8 +1415,10 @@
         status.textContent = 'Computing T & C...';
         await new Promise(resolve => setTimeout(resolve, 20));
 
-        const tResult = computeTrustworthiness(highDimDistMatrix, newEmbedding, metricK);
-        const cResult = computeContinuity(highDimDistMatrix, newEmbedding, metricK);
+        const tMeasured = measureRuntime(() => computeTrustworthiness(highDimDistMatrix, newEmbedding, metricK));
+        const tResult = tMeasured.result;
+        const cMeasured = measureRuntime(() => computeContinuity(highDimDistMatrix, newEmbedding, metricK));
+        const cResult = cMeasured.result;
 
         status.textContent = 'Computing S & Co...';
         await new Promise(resolve => setTimeout(resolve, 20));
@@ -1242,6 +1437,12 @@
           steadiness: sncResult.steadiness.localScores,
           cohesiveness: sncResult.cohesiveness.localScores
         };
+        newMetricTimings = {
+          trustworthiness: tMeasured.ms,
+          continuity: cMeasured.ms,
+          steadiness: sncResult.steadiness.runtimeMs,
+          cohesiveness: sncResult.cohesiveness.runtimeMs
+        };
 
         document.getElementById('new-panel-title').innerHTML =
           `New Embedding <span class="params">(n_neighbors=${nNeighbors}, min_dist=${minDist.toFixed(2)}, k=${metricK})</span>`;
@@ -1249,7 +1450,7 @@
         renderScatter('chart-new', newEmbedding, baselineLabels, newLocalScores);
         renderComparison();
 
-        status.textContent = `Done (T=${tResult.score.toFixed(4)}, C=${cResult.score.toFixed(4)}, S=${sncResult.steadiness.score.toFixed(4)}, Co=${sncResult.cohesiveness.score.toFixed(4)})`;
+        status.textContent = `Done (T=${tResult.score.toFixed(4)} / ${formatRuntime(newMetricTimings.trustworthiness)}, C=${cResult.score.toFixed(4)} / ${formatRuntime(newMetricTimings.continuity)}, S=${sncResult.steadiness.score.toFixed(4)} / ${formatRuntime(newMetricTimings.steadiness)}, Co=${sncResult.cohesiveness.score.toFixed(4)} / ${formatRuntime(newMetricTimings.cohesiveness)})`;
       } catch (err) {
         status.textContent = 'Error: ' + err.message;
         console.error(err);
@@ -1273,8 +1474,10 @@
         highDimNeighbors = getKNearestNeighbors(highDimDistMatrix, k);
 
         // Baseline T & C
-        const baseTResult = computeTrustworthiness(highDimDistMatrix, baselineEmbedding, k);
-        const baseCResult = computeContinuity(highDimDistMatrix, baselineEmbedding, k);
+        const baseTMeasured = measureRuntime(() => computeTrustworthiness(highDimDistMatrix, baselineEmbedding, k));
+        const baseTResult = baseTMeasured.result;
+        const baseCMeasured = measureRuntime(() => computeContinuity(highDimDistMatrix, baselineEmbedding, k));
+        const baseCResult = baseCMeasured.result;
 
         status.textContent = `Computing S & Co for baseline (k=${k})...`;
         await new Promise(r => setTimeout(r, 20));
@@ -1293,6 +1496,12 @@
           steadiness: baseSNCResult.steadiness.localScores,
           cohesiveness: baseSNCResult.cohesiveness.localScores
         };
+        baselineMetricTimings = {
+          trustworthiness: baseTMeasured.ms,
+          continuity: baseCMeasured.ms,
+          steadiness: baseSNCResult.steadiness.runtimeMs,
+          cohesiveness: baseSNCResult.cohesiveness.runtimeMs
+        };
 
         renderScatter('chart-baseline', baselineEmbedding, baselineLabels, baselineLocalScores);
 
@@ -1300,8 +1509,10 @@
           status.textContent = `Computing metrics for new embedding (k=${k})...`;
           await new Promise(r => setTimeout(r, 20));
 
-          const tResult = computeTrustworthiness(highDimDistMatrix, newEmbedding, k);
-          const cResult = computeContinuity(highDimDistMatrix, newEmbedding, k);
+          const tMeasured = measureRuntime(() => computeTrustworthiness(highDimDistMatrix, newEmbedding, k));
+          const tResult = tMeasured.result;
+          const cMeasured = measureRuntime(() => computeContinuity(highDimDistMatrix, newEmbedding, k));
+          const cResult = cMeasured.result;
 
           status.textContent = `Computing S & Co for new embedding (k=${k})...`;
           await new Promise(r => setTimeout(r, 20));
@@ -1320,12 +1531,18 @@
             steadiness: sncResult.steadiness.localScores,
             cohesiveness: sncResult.cohesiveness.localScores
           };
+          newMetricTimings = {
+            trustworthiness: tMeasured.ms,
+            continuity: cMeasured.ms,
+            steadiness: sncResult.steadiness.runtimeMs,
+            cohesiveness: sncResult.cohesiveness.runtimeMs
+          };
 
           renderScatter('chart-new', newEmbedding, baselineLabels, newLocalScores);
         }
 
         renderComparison();
-        status.textContent = `k=${k}: T=${baselineMetrics.trustworthiness.toFixed(4)}, C=${baselineMetrics.continuity.toFixed(4)}, S=${baselineMetrics.steadiness.toFixed(4)}, Co=${baselineMetrics.cohesiveness.toFixed(4)}`;
+        status.textContent = `k=${k}: T=${baselineMetrics.trustworthiness.toFixed(4)} / ${formatRuntime(baselineMetricTimings.trustworthiness)}, C=${baselineMetrics.continuity.toFixed(4)} / ${formatRuntime(baselineMetricTimings.continuity)}, S=${baselineMetrics.steadiness.toFixed(4)} / ${formatRuntime(baselineMetricTimings.steadiness)}, Co=${baselineMetrics.cohesiveness.toFixed(4)} / ${formatRuntime(baselineMetricTimings.cohesiveness)}`;
       } catch (err) {
         status.textContent = 'Error: ' + err.message;
         console.error(err);
@@ -1413,9 +1630,7 @@
     // =========================================================================
     // Initialize
     // =========================================================================
-    async function initialize() {
-      if (!loadData()) return;
-
+    async function runInitializeFromData() {
       const status = document.getElementById('status');
 
       status.textContent = 'Computing baseline embedding (n_neighbors=15, min_dist=0.10)...';
@@ -1432,8 +1647,10 @@
       status.textContent = 'Computing baseline T & C...';
       await new Promise(r => setTimeout(r, 20));
 
-      const baseTResult = computeTrustworthiness(highDimDistMatrix, baselineEmbedding, metricK);
-      const baseCResult = computeContinuity(highDimDistMatrix, baselineEmbedding, metricK);
+      const baseTMeasured = measureRuntime(() => computeTrustworthiness(highDimDistMatrix, baselineEmbedding, metricK));
+      const baseTResult = baseTMeasured.result;
+      const baseCMeasured = measureRuntime(() => computeContinuity(highDimDistMatrix, baselineEmbedding, metricK));
+      const baseCResult = baseCMeasured.result;
 
       status.textContent = 'Computing baseline S & Co (may take a moment)...';
       await new Promise(r => setTimeout(r, 20));
@@ -1452,12 +1669,22 @@
         steadiness: baseSNCResult.steadiness.localScores,
         cohesiveness: baseSNCResult.cohesiveness.localScores
       };
+      baselineMetricTimings = {
+        trustworthiness: baseTMeasured.ms,
+        continuity: baseCMeasured.ms,
+        steadiness: baseSNCResult.steadiness.runtimeMs,
+        cohesiveness: baseSNCResult.cohesiveness.runtimeMs
+      };
 
       status.textContent = '';
-
       renderLegend();
       renderScatter('chart-baseline', baselineEmbedding, baselineLabels, baselineLocalScores);
       renderComparison();
+    }
+
+    async function initialize() {
+      if (!loadData()) return;
+      await runInitializeFromData();
     }
 
     initialize();
